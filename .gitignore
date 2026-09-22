@@ -1,0 +1,45 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+build
+*.local
+
+# Environment variables - never commit real secrets. .env.example (tracked)
+# documents the variable names only; every other .env* file is local-only.
+.env
+.env.*
+!.env.example
+
+# Editor/OS cruft
+.DS_Store
+
+# Test/coverage output
+coverage
+test-results
+*.log
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Local Supabase CLI state/secrets (access tokens, local DB state) - never
+# committed even though it's usually gitignored by the CLI itself.
+.supabase
+supabase/.temp
+supabase/.branches
+
+# Working files from earlier project phases: safety-copy folders, source
+# backups, and files moved aside for review instead of deleted (see
+# README's "Development notes" - device deletion is opt-in, so removed
+# files are renamed into _to_delete/ rather than erased).
+_to_delete
+*-before-*
+*.tar.gz
+
+# Editor build artifacts checked in by mistake in earlier scaffolding
+vite.config.js
+vite.config.d.ts
+vitest.config.js
+vitest.config.d.ts
