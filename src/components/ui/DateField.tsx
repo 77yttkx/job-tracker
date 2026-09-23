@@ -5,6 +5,7 @@ import {
   MONTH_LABELS_EN,
   WEEKDAY_LABELS_EN,
   buildMonthGrid,
+  getTodayYmd,
   maskDateDigits,
   parseDateDisplay,
   toYmd,
@@ -168,6 +169,9 @@ function CalendarPopover({
 
   const days = useMemo(() => buildMonthGrid(cursor.year, cursor.month), [cursor])
   const label = `${MONTH_LABELS_EN[cursor.month]} ${cursor.year}`
+  // Purely a visual "you are here" cue - it never changes which date is
+  // selected or filtered (that stays entirely driven by `value`/`onPick`).
+  const todayYmd = useMemo(() => getTodayYmd(), [])
 
   function goPrevMonth() {
     setCursor((c) => (c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 }))
@@ -211,17 +215,21 @@ function CalendarPopover({
           if (day === null) return <span key={`blank-${i}`} />
           const dayYmd = toYmd(cursor.year, cursor.month, day)
           const isSelected = value === dayYmd
+          const isToday = dayYmd === todayYmd
           return (
             <button
               key={dayYmd}
               type="button"
               onClick={() => onPick(dayYmd)}
               aria-pressed={isSelected}
+              aria-current={isToday ? 'date' : undefined}
               className={classNames(
                 'rounded p-1.5 text-xs tabular-nums hover:bg-sky-100 dark:hover:bg-sky-900/40',
                 isSelected
                   ? 'bg-sky-600 text-white hover:bg-sky-600'
-                  : 'text-slate-700 dark:text-slate-200',
+                  : isToday
+                    ? 'font-semibold text-sky-700 ring-1 ring-inset ring-sky-500 dark:text-sky-300 dark:ring-sky-500'
+                    : 'text-slate-700 dark:text-slate-200',
               )}
             >
               {day}

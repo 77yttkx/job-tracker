@@ -4,11 +4,18 @@ import { AppShell } from './components/layout/AppShell'
 import { JobModal } from './components/jobs/JobModal'
 import { InsightsPage } from './pages/InsightsPage'
 import { TablePage } from './pages/TablePage'
+import { StoryLibraryPage } from './pages/interviewPrep/bq/StoryLibraryPage'
+import { MyAnswersPage } from './pages/interviewPrep/bq/MyAnswersPage'
+import { BQQuestionsPage } from './pages/interviewPrep/bq/BQQuestionsPage'
+import { PrepareForJobPage } from './pages/interviewPrep/bq/PrepareForJobPage'
+import { TechnicalComingSoonPage } from './pages/interviewPrep/TechnicalComingSoonPage'
 import { SignInPage } from './pages/auth/SignInPage'
 import { SignUpPage } from './pages/auth/SignUpPage'
 import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
 import { ResetPasswordPage } from './pages/auth/ResetPasswordPage'
 import { useJobs } from './hooks/useJobs'
+import { useStories } from './hooks/useStories'
+import { useAnswers } from './hooks/useAnswers'
 import { useAuth, type AuthState } from './hooks/useAuth'
 import { useTheme } from './hooks/useTheme'
 import type { Job } from './types/job'
@@ -22,6 +29,15 @@ import type { Job } from './types/job'
  */
 function AuthenticatedApp({ auth, userId, userEmail }: { auth: AuthState; userId: string; userEmail: string }) {
   const jobsState = useJobs(userId)
+  // Interview Prep's own data hooks, independent of jobsState. As of
+  // V3.2, ONE Interview Prep page - PrepareForJobPage ("Prepare for a
+  // Job") - additionally receives jobsState as a prop, the same way
+  // InsightsPage/TablePage already do, so a user can explicitly select
+  // one of their own jobs there; every other Interview Prep page still
+  // never receives jobsState at all (see README.md's "Interview Prep"
+  // section and src/__tests__/interviewPrepNavigationAndIndependence.test.ts).
+  const storiesState = useStories(userId)
+  const answersState = useAnswers(userId)
   const { theme, toggleTheme } = useTheme()
   const [modalJob, setModalJob] = useState<Job | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
@@ -54,6 +70,21 @@ function AuthenticatedApp({ auth, userId, userEmail }: { auth: AuthState; userId
             path="/table"
             element={<TablePage jobsState={jobsState} onEditJob={openEditModal} userId={userId} />}
           />
+          <Route path="/interview-prep" element={<Navigate to="/interview-prep/bq" replace />} />
+          <Route path="/interview-prep/bq" element={<Navigate to="/interview-prep/bq/questions" replace />} />
+          <Route path="/interview-prep/bq/questions" element={<BQQuestionsPage answersState={answersState} />} />
+          <Route path="/interview-prep/bq/answers" element={<MyAnswersPage answersState={answersState} />} />
+          <Route
+            path="/interview-prep/bq/prepare"
+            element={
+              <PrepareForJobPage jobsState={jobsState} answersState={answersState} storiesState={storiesState} />
+            }
+          />
+          <Route path="/interview-prep/bq/stories" element={<StoryLibraryPage storiesState={storiesState} />} />
+          <Route path="/interview-prep/technical" element={<TechnicalComingSoonPage />} />
+          {/* V3.1 routes, kept as redirects so an old bookmark/link still lands somewhere useful. */}
+          <Route path="/interview-prep/answers" element={<Navigate to="/interview-prep/bq/answers" replace />} />
+          <Route path="/interview-prep/stories" element={<Navigate to="/interview-prep/bq/stories" replace />} />
           <Route path="*" element={<Navigate to="/insights" replace />} />
         </Routes>
       </AppShell>

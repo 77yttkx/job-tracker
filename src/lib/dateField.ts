@@ -86,3 +86,16 @@ export function buildMonthGrid(year: number, month: number): Array<number | null
 export function toYmd(year: number, month: number, day: number): string {
   return `${year}-${pad2(month + 1)}-${pad2(day)}`
 }
+
+/**
+ * Today's date as YYYY-MM-DD, in the browser's local timezone - built
+ * from `Date`'s own local year/month/day getters (never a UTC-parsing
+ * `new Date().toISOString()`, which can be a day off near midnight in a
+ * negative-offset timezone), for the calendar popover's "today"
+ * indicator (src/components/ui/DateField.tsx). Purely a visual highlight
+ * - it never changes what date is selected/filtered.
+ */
+export function getTodayYmd(): string {
+  const now = new Date()
+  return toYmd(now.getFullYear(), now.getMonth(), now.getDate())
+}

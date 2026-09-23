@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildMonthGrid,
+  getTodayYmd,
   maskDateDigits,
   parseDateDisplay,
   toYmd,
@@ -98,6 +99,26 @@ describe('buildMonthGrid', () => {
   it('produces exactly 28 day cells for a non-leap-year February', () => {
     const cells = buildMonthGrid(2026, 1)
     expect(cells.filter((c) => c !== null)).toHaveLength(28)
+  })
+})
+
+describe('getTodayYmd', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("returns today's date as YYYY-MM-DD, from local (not UTC) getters", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 8, 21, 10, 0, 0)) // Sep 21 2026, local noon-ish
+    expect(getTodayYmd()).toBe('2026-09-21')
+  })
+
+  it('never shifts near a local-midnight boundary (no UTC/ISO parsing involved)', () => {
+    vi.useFakeTimers()
+    // 11:59 PM local time - a UTC-based implementation in a negative
+    // offset timezone could report the wrong (next) day here.
+    vi.setSystemTime(new Date(2026, 0, 1, 23, 59, 0))
+    expect(getTodayYmd()).toBe('2026-01-01')
   })
 })
 

@@ -1,12 +1,19 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
-import { LineChart, Table2, Plus, Moon, Sun, Briefcase, LogOut } from 'lucide-react'
+import { LineChart, Table2, MessagesSquare, Plus, Moon, Sun, Briefcase, LogOut } from 'lucide-react'
 import { classNames } from '../../lib/utils'
 import type { Theme } from '../../hooks/useTheme'
 
+// V3: "Interview Prep" is a separate, independent module (Story Library /
+// Generate STAR Answer / Answer Library - see src/pages/interviewPrep/)
+// reached via a single sidebar entry directly below Table, per spec. It
+// links to /interview-prep (which redirects to /interview-prep/stories -
+// see src/App.tsx), and stays highlighted for any /interview-prep/* page
+// since `end: false` matches on the path prefix.
 const NAV_ITEMS = [
   { to: '/insights', label: 'Insights', icon: LineChart, end: false },
   { to: '/table', label: 'Table', icon: Table2, end: false },
+  { to: '/interview-prep', label: 'Interview Prep', icon: MessagesSquare, end: false },
 ] as const
 
 interface AppShellProps {
