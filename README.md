@@ -60,6 +60,13 @@ and a filterable table that only ever show your own jobs.
     underlying numbers as the application overview above but as a compact
     list). There is deliberately no sponsorship distribution panel on
     Insights.
+  - **SQL Analytics Lab (V3.3)** - a second Insights tab, alongside
+    Overview, that runs read-only Postgres SQL functions (RPCs) against
+    your own data: Application Funnel, Company Outcomes, Sponsorship
+    Analysis, Application Trend, and Status History. Every card shows a
+    chart/table, a plain-English explanation, and a collapsible "View
+    SQL" panel with the underlying read-only query. See "SQL Analytics
+    Lab (V3.3)" below for the full architecture and security design.
   - Loading, error (with a Retry action), and empty states are distinct:
     "No applications yet" is only ever shown after a query that succeeded
     and genuinely returned zero rows, never while loading or after a
@@ -256,6 +263,111 @@ sessions (yet)" below for the reasoning.
 - **Explicit, per-job opt-in.** No job is read, scanned, or summarized
   until you pick one from the list; nothing runs in the background.
 
+## SQL Analytics Lab (V3.3)
+
+A read-only second tab on the Insights page (`src/components/insights/analytics/`),
+demonstrating practical SQL - real `GROUP BY`/`CASE WHEN`/date-bucketing/
+window-style aggregation - against your own Job Tracker data, with every
+query running as a Postgres function on Supabase, never assembled or run
+in the browser.
+
+### Analyses
+
+| Card | What it shows | SQL skills |
+| --- | --- | --- |
+| Application Funnel | Count of your jobs currently at each status | `COUNT`, `GROUP BY`, `ORDER BY` |
+| Company Outcomes | Per-company totals, interview-stage reach, offers, rejections | `GROUP BY`, `CASE WHEN`, conditional aggregation |
+| Sponsorship Analysis | Job counts and current outcomes by sponsorship value | conditional aggregation, null-safe grouping |
+| Application Trend | Applications by week or month, from `applied_date` | date functions, time bucketing, ordered series |
+| Status History | Weekly transition activity, stage-reach counts, and average time-to-stage, built from `job_status_events` | CTEs, inner joins, `date_trunc`, duration math |
+
+Each card shows its chart/table plus loading/error/empty states, a
+one-sentence plain-English explanation, and a collapsible **View SQL**
+section with a readable, read-only example of the underlying query
+(`src/lib/sqlExamples.ts`) - display-only text; nothing in the Lab ever
+sends that string to Supabase. The actual data always comes from calling
+one of the RPCs below via `supabase.rpc(...)` (`src/services/analytics.ts`).
+
+### Status history is real, not inferred - and starts from this migration forward
+
+Unlike the pre-V2.5.2 Sankey panel this app removed (see the note under
+Features), the Status History card is not guessing that a job "must have"
+passed through earlier stages. It's built entirely from
+`public.job_status_events`, a table that only ever contains events
+actually recorded by a database trigger from the moment
+`supabase-v3_3-sql-analytics.sql` was run. There is no backfill for jobs
+that existed before that point - the card and its RPCs are explicit about
+this everywhere a number could otherwise look misleading: "Status history
+begins when tracking is enabled; older job changes are not reconstructed."
+A job created before the migration only starts accumulating history once
+its status next changes (or, for a brand-new job, from the moment it's
+created). Every duration metric (e.g. "Applied to OA") is computed only
+over jobs that have **both** of the two events it needs - it's never
+invented or estimated for a job missing one of them.
+
+### Database layer (`supabase-v3_3-sql-analytics.sql`)
+
+- **`public.job_status_events`** - `job_id`, `user_id`, `from_status`
+  (nullable - a job's first event has no "from"), `to_status`,
+  `changed_at`. RLS enabled with a single `select`-own policy
+  (`user_id = auth.uid()`); `authenticated` is granted `SELECT` only -
+  there is no insert/update/delete grant at all, so
+  `supabase.from('job_status_events').insert(...)` from the browser is
+  rejected by Postgres before RLS is even evaluated.
+- **The only writer is a trigger.** `record_job_status_event()` is
+  `security definer` (runs as the function owner, not the calling user,
+  so it can insert despite `authenticated` having no grant) with
+  `set search_path = public, pg_temp` pinned against search-path
+  hijacking, and it takes **no parameters** and runs **no dynamic SQL** -
+  every value it writes comes from `NEW`/`OLD`, the row Postgres is
+  already inserting/updating in `public.jobs` under that table's own RLS.
+  A user who isn't allowed to write a given job row can never cause an
+  event for it, because the trigger only fires as a side effect of a
+  write `public.jobs`' own policies already approved. `EXECUTE` on the
+  function is revoked from `PUBLIC`, so it also can't be called directly
+  as an RPC. Two triggers are attached: `after insert` (records the
+  initial status) and `after update of status` (records a new event only
+  when `new.status is distinct from old.status`, so a no-op
+  `set status = status` doesn't create a duplicate).
+- **`public.jobs` itself is unchanged** - no new column, no dropped or
+  altered column, and none of its four existing RLS policies are
+  created, dropped, or altered. The only thing attached to `public.jobs`
+  is the two triggers above. Verified by
+  `src/__tests__/sqlAnalyticsMigration.test.ts`, which reads the
+  migration file directly and asserts on exactly this.
+- **Seven read-only RPCs** (`analytics_application_funnel`,
+  `analytics_company_outcomes`, `analytics_sponsorship_outcomes`,
+  `analytics_application_trend`, `analytics_status_transitions_by_week`,
+  `analytics_stage_reach_counts`, `analytics_avg_stage_durations`) are
+  each `language sql` (a single query, no dynamic SQL), `security
+  invoker` (runs as the calling user, inheriting RLS exactly as any other
+  query they ran would - never bypasses it), `stable`, and additionally
+  filtered by `where user_id = auth.uid()` in the query body itself as a
+  second, belt-and-suspenders scope. `EXECUTE` is revoked from `PUBLIC`
+  and granted only to `authenticated`. The Application Trend RPC's
+  `granularity` argument is never interpolated into dynamic SQL - a
+  `case when granularity = 'week' then 'week' else 'month' end`
+  expression forces it to resolve to exactly one of two fixed literals
+  before it ever reaches `date_trunc`.
+- **Idempotent and safe to re-run.** Every `create table`/`create index`
+  uses `if not exists`, every function uses `create or replace`, and
+  every trigger/policy is dropped then recreated. Re-running the
+  migration never duplicates objects and never re-processes existing
+  rows (there is no backfill statement in it at all).
+
+### What the frontend can and cannot do
+
+- `src/services/analytics.ts` only ever calls `supabase.rpc(<fixed
+  string>)` - there is no `supabase.from('job_status_events')` call
+  anywhere in the Lab, no client-built query, and no way for a caller to
+  influence which SQL runs beyond the `week`/`month` trend toggle (itself
+  constrained server-side, as above).
+- There is no arbitrary-SQL input anywhere in the UI - every analysis is
+  one of the seven fixed RPCs, called with no arguments (or the trend's
+  fixed `week`/`month` choice).
+- No external AI, API key, or network dependency of any kind - the Lab
+  is Supabase Postgres and this app's own React/Recharts, nothing else.
+
 ## Tech stack
 
 React 18 + TypeScript + Vite, Tailwind CSS, Supabase (Postgres + Auth +
@@ -351,7 +463,33 @@ The app runs at http://localhost:5173 by default.
    Skipping any of these three just means the affected Interview Prep
    pages will show query errors when opened - the rest of the Job
    Tracker is unaffected either way.
-8. **Not required as of V3.1:** Interview Prep no longer uses Gemini or
+8. **Optional - only if you want the SQL Analytics Lab (Insights ->
+   "SQL Analytics Lab" tab):** run `supabase-v3_3-sql-analytics.sql` in
+   the SQL editor, once, after `supabase-v2_6-multi-user.sql` (it does
+   not depend on any of the V3/V3.1/V3.2 Interview Prep migrations).
+   It's purely additive:
+   - Creates one new table, `public.job_status_events`, with RLS enabled
+     and a single `select`-own policy - the frontend has no insert/
+     update/delete grant on it at all.
+   - Attaches an `after insert` and an `after update of status` trigger
+     to `public.jobs` that are the table's only writer (a
+     `security definer` function with a pinned `search_path`, callable
+     only as a trigger, never directly). It does not add, drop, or alter
+     any column on `public.jobs`, and does not touch any of the four
+     existing `public.jobs` RLS policies - verified by
+     `src/__tests__/sqlAnalyticsMigration.test.ts`, which reads the
+     migration file directly.
+   - Creates seven read-only, `security invoker`, `auth.uid()`-scoped SQL
+     functions (RPCs) that the frontend calls via `supabase.rpc(...)` -
+     see "SQL Analytics Lab (V3.3)" below for the full list and the
+     security reasoning.
+   - **No backfill:** it does not invent a synthetic history for jobs
+     that already existed before you ran it - status-history metrics on
+     the Status History card only ever reflect events recorded from this
+     migration forward. Skipping this migration just means the SQL
+     Analytics Lab tab shows query errors when opened; the rest of the
+     Job Tracker is unaffected.
+9. **Not required as of V3.1:** Interview Prep no longer uses Gemini or
    any external AI provider, so there is nothing to deploy or configure
    for it. The old step 8 (Gemini secrets + `generate-star-answer`
    deploy) only matters if you want to keep the now-unused Edge Function
@@ -974,12 +1112,19 @@ still safe. Concretely, the guarantees are now:
 - No email access/parsing, resume upload/parsing, or AI-generated analysis.
 - No Kanban board (removed in V2 in favor of the Insights page as the
   landing page - see the V2 note under Features).
-- Insights has no historical transition log - the schema stores only each
-  job's current `status`, never a record of status changes over time. The
-  application overview and status distribution panels reflect current
-  status only and never infer that a job passed through earlier stages. Insights always reflects
-  every stored job; it intentionally has no filter bar of its own (use the
-  Table page to filter).
+- The Insights **Overview** tab has no historical transition log by
+  design - the application overview and status distribution panels
+  reflect each job's current `status` only, and never infer that a job
+  passed through earlier stages. Insights always reflects every stored
+  job; it intentionally has no filter bar of its own (use the Table page
+  to filter).
+- The Insights **SQL Analytics Lab** tab's Status History card *does*
+  have real transition history (`public.job_status_events`), but only
+  from the moment `supabase-v3_3-sql-analytics.sql` was run - there is no
+  backfill, so a job's history there begins at whichever comes later: the
+  job's creation, or that migration. See "SQL Analytics Lab (V3.3)"
+  above. If you haven't run that migration at all, the SQL Analytics Lab
+  tab shows query errors when opened; the rest of the app is unaffected.
 - Table filters run client-side.
 - `parse-job` cannot parse JavaScript-rendered, login-gated, or
   CAPTCHA-protected pages - see "URL parsing limitations" above.

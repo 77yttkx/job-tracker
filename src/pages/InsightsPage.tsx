@@ -1,7 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { ApplicationOverview } from '../components/insights/ApplicationOverview'
 import { TimeSummary } from '../components/insights/TimeSummary'
 import { DistributionPanel } from '../components/insights/DistributionPanel'
+import { InsightsTabs } from '../components/insights/InsightsTabs'
+import type { InsightsTab } from '../components/insights/InsightsTabs'
+import { SqlAnalyticsLab } from '../components/insights/analytics/SqlAnalyticsLab'
 import { ExportCsvButton } from '../components/ui/ExportCsvButton'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/DataStates'
 import { STATUS_COLORS } from '../lib/constants'
@@ -29,9 +32,19 @@ import type { useJobs } from '../hooks/useJobs'
  * tooltip had a visible "undefined -> undefined" bug. <ApplicationOverview>
  * replaces it as the first panel: a plain count/percentage of each job's
  * *current* status only, with no stage inference of any kind.
+ *
+ * V3.3: a second tab, "SQL Analytics Lab" (<SqlAnalyticsLab>), was added
+ * alongside this original view (now "Overview"). Unlike the removed
+ * Sankey panel, the Lab's Status History card is built from real
+ * recorded events (public.job_status_events, populated by a trigger from
+ * supabase-v3_3-sql-analytics.sql forward) - it is honest, not inferred,
+ * about which history it does and does not have. The Lab fetches its own
+ * data independently via RPC (src/services/analytics.ts) and does not
+ * read from jobsState at all, so switching tabs never re-fetches jobs.
  */
 export function InsightsPage({ jobsState }: { jobsState: ReturnType<typeof useJobs> }) {
   const { jobs, loading, error, errorDetail, refresh } = jobsState
+  const [tab, setTab] = useState<InsightsTab>('overview')
 
   const statusRows = useMemo(() => statusDistribution(jobs), [jobs])
 
@@ -44,10 +57,14 @@ export function InsightsPage({ jobsState }: { jobsState: ReturnType<typeof useJo
             An overview of every application you&apos;re tracking.
           </p>
         </div>
-        <ExportCsvButton jobs={jobs} />
+        {tab === 'overview' && <ExportCsvButton jobs={jobs} />}
       </div>
 
-      {loading && jobs.length === 0 ? (
+      <InsightsTabs active={tab} onChange={setTab} />
+
+      {tab === 'sql-lab' ? (
+        <SqlAnalyticsLab />
+      ) : loading && jobs.length === 0 ? (
         <LoadingState />
       ) : error ? (
         <ErrorState message={error} detail={errorDetail} onRetry={refresh} />
