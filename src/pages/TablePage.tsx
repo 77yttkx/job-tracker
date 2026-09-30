@@ -4,7 +4,8 @@ import { JOB_STATUSES, SPONSORSHIP_VALUES } from '../lib/constants'
 import type { JobStatus, Sponsorship } from '../lib/constants'
 import { formatDate, classNames } from '../lib/utils'
 import { applyJobFilters } from '../lib/insightsFilters'
-import { StatusBadge } from '../components/jobs/StatusBadge'
+import { compareJobsByAppliedDate } from '../lib/tableSort'
+import { StatusEditCell } from '../components/jobs/StatusEditCell'
 import { SponsorshipBadge } from '../components/jobs/SponsorshipBadge'
 import { DeleteButton } from '../components/jobs/DeleteButton'
 import { ImportJobsModal } from '../components/jobs/ImportJobsModal'
@@ -61,11 +62,15 @@ export function TablePage({
   /** The signed-in user's id, threaded through to ImportJobsModal so every imported row is attached to them. */
   userId: string
 }) {
-  const { jobs, loading, error, errorDetail, refresh, removeJob } = jobsState
+  const { jobs, loading, error, errorDetail, refresh, editJob, removeJob } = jobsState
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS)
-  const [sortKey, setSortKey] = useState<SortKey>('updated_at')
+  // Default order: most recently applied first (see tableSort.ts). Users can
+  // still toggle to the "Updated" column via the existing SortableTh.
+  const [sortKey, setSortKey] = useState<SortKey>('applied_date')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [statusError, setStatusError] = useState<string | null>(null)
+  const [statusPendingId, setStatusPendingId] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 
   const filtered = useMemo(() => {
@@ -77,6 +82,13 @@ export function TablePage({
       (job) => matchesSearch(job, filters.search) && matchesDateRange(job, filters.dateFrom, filters.dateTo),
     )
     const sorted = [...rows].sort((a, b) => {
+      if (sortKey === 'applied_date') {
+        // Explicit, updated_at-independent tie-break (created_at desc, then
+        // job_id) - never falls back to Array.sort's stability over the
+        // underlying fetch order, which is itself updated_at-driven. This
+        // keeps a job's row position stable across status/notes edits.
+        return compareJobsByAppliedDate(a, b, sortDir)
+      }
       const aVal = a[sortKey] ?? ''
       const bVal = b[sortKey] ?? ''
       const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
@@ -126,6 +138,22 @@ export function TablePage({
       await removeJob(jobId)
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete this job.')
+    }
+  }
+
+  async function handleStatusChange(jobId: string, next: JobStatus) {
+    setStatusError(null)
+    setStatusPendingId(jobId)
+    try {
+      // Reuses the app's existing job update path - editJob only replaces
+      // local state after the server write resolves, so a failed update
+      // leaves the previously displayed status in place with no extra
+      // rollback code needed here.
+      await editJob(jobId, { status: next })
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : 'Failed to update status.')
+    } finally {
+      setStatusPendingId(null)
     }
   }
 
@@ -290,6 +318,12 @@ export function TablePage({
             </p>
           )}
 
+          {statusError && (
+            <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+              {statusError}
+            </p>
+          )}
+
           {filtered.length === 0 ? (
             <EmptyState title="No results" description="Try adjusting or clearing your filters." />
           ) : (
@@ -315,7 +349,11 @@ export function TablePage({
                       <Td>{job.role || <Muted>-</Muted>}</Td>
                       <Td className="hidden max-w-[10rem] truncate lg:table-cell">{job.location || <Muted>-</Muted>}</Td>
                       <Td>
-                        <StatusBadge status={job.status} />
+                        <StatusEditCell
+                          status={job.status}
+                          pending={statusPendingId === job.job_id}
+                          onChange={(next) => void handleStatusChange(job.job_id, next)}
+                        />
                       </Td>
                       <Td className="hidden md:table-cell">
                         <SponsorshipBadge sponsorship={job.sponsorship} />
