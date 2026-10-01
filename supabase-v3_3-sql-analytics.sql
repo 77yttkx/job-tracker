@@ -355,24 +355,53 @@ $$;
 revoke execute on function public.analytics_status_transitions_by_week() from public;
 grant execute on function public.analytics_status_transitions_by_week() to authenticated;
 
--- E2. Distinct jobs that reached each stage at least once, since tracking
---     began (i.e. have a recorded event, not an inferred one).
-create or replace function public.analytics_stage_reach_counts()
-returns table (stage text, reached_count bigint)
+-- E2. Distinct jobs that reached each stage at least once since tracking
+--     began (i.e. have a recorded event, not an inferred one), plus what
+--     share of all tracked jobs that represents. `total_tracked` is the
+--     count of distinct jobs with ANY recorded event for this user - the
+--     correct denominator for "what % of jobs I've tracked since this
+--     migration ran have reached stage X", not a guess at lifetime
+--     application volume (which this table cannot know - see the
+--     no-backfill note in Part 2).
+--
+-- Dropped and recreated (rather than CREATE OR REPLACE) because this
+-- superseded a same-named-purpose function
+-- (analytics_stage_reach_counts) with a different return shape;
+-- CREATE OR REPLACE cannot change a function's return columns. The DROP
+-- is itself idempotent (IF EXISTS), so this migration remains safe to
+-- run more than once.
+drop function if exists public.analytics_stage_reach_counts();
+
+create or replace function public.analytics_stage_reach_rates()
+returns table (stage text, reached_count bigint, total_tracked bigint, reach_rate_pct numeric)
 language sql
 security invoker
 stable
 set search_path = public
 as $$
+  with tracked as (
+    select count(distinct job_id)::bigint as total
+    from public.job_status_events
+    where user_id = auth.uid()
+  ),
+  reach as (
+    select
+      to_status as stage,
+      count(distinct job_id)::bigint as reached_count
+    from public.job_status_events
+    where user_id = auth.uid()
+      and to_status in ('OA', '1st Round', '2nd Round', 'Final Round', 'Offer')
+    group by to_status
+  )
   select
-    to_status as stage,
-    count(distinct job_id)::bigint as reached_count
-  from public.job_status_events
-  where user_id = auth.uid()
-    and to_status in ('OA', '1st Round', '2nd Round', 'Final Round', 'Offer')
-  group by to_status
+    r.stage,
+    r.reached_count,
+    t.total as total_tracked,
+    case when t.total > 0 then round((r.reached_count::numeric / t.total) * 100, 1) else null end as reach_rate_pct
+  from reach r
+  cross join tracked t
   order by
-    case to_status
+    case r.stage
       when 'OA' then 1
       when '1st Round' then 2
       when '2nd Round' then 3
@@ -382,8 +411,8 @@ as $$
     end;
 $$;
 
-revoke execute on function public.analytics_stage_reach_counts() from public;
-grant execute on function public.analytics_stage_reach_counts() to authenticated;
+revoke execute on function public.analytics_stage_reach_rates() from public;
+grant execute on function public.analytics_stage_reach_rates() to authenticated;
 
 -- E3. Average time-to-stage, computed ONLY over jobs that have BOTH the
 --     "Applied" event and the target event (inner joins below naturally

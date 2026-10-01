@@ -105,7 +105,7 @@ describe('supabase-v3_3-sql-analytics.sql (source-level regression guard)', () =
       'analytics_sponsorship_outcomes()',
       'analytics_application_trend(text)',
       'analytics_status_transitions_by_week()',
-      'analytics_stage_reach_counts()',
+      'analytics_stage_reach_rates()',
       'analytics_avg_stage_durations()',
     ]
     for (const fn of fnNames) {
@@ -125,6 +125,22 @@ describe('supabase-v3_3-sql-analytics.sql (source-level regression guard)', () =
     expect(trendBlock![0]).not.toMatch(/execute/i)
     // granularity must be forced through a CASE expression before reaching date_trunc.
     expect(trendBlock![0]).toMatch(/case when granularity = 'week' then 'week' else 'month' end/)
+  })
+
+  it('drops the superseded analytics_stage_reach_counts() function idempotently before creating its replacement', () => {
+    expect(migrationSource).toMatch(/drop function if exists public\.analytics_stage_reach_counts\(\);/)
+    expect(migrationSource).toMatch(/create or replace function public\.analytics_stage_reach_rates\(\)/)
+  })
+
+  it('the stage reach-rate is computed as reached_count / total_tracked * 100, rounded, and guards against division by zero', () => {
+    const rateBlock = migrationSource.match(/create or replace function public\.analytics_stage_reach_rates[\s\S]*?\$\$;/)
+    expect(rateBlock).not.toBeNull()
+    expect(rateBlock![0]).toMatch(/round\(\(r\.reached_count::numeric \/ t\.total\) \* 100, 1\)/)
+    expect(rateBlock![0]).toMatch(/case when t\.total > 0 then[\s\S]*?else null end/)
+    // total_tracked counts distinct jobs with ANY event, not just jobs
+    // with a recorded "Applied" event - so it never undercounts a job
+    // whose first-ever recorded status wasn't literally 'Applied'.
+    expect(rateBlock![0]).toMatch(/select count\(distinct job_id\)::bigint as total\s*\n\s*from public\.job_status_events\s*\n\s*where user_id = auth\.uid\(\)\s*\n\s*\),/)
   })
 
   it('every duration metric excludes jobs missing one of the two events - no invented durations', () => {

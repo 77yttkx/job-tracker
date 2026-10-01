@@ -3,13 +3,12 @@ import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'rec
 import { AnalyticsCard } from './AnalyticsCard'
 import { useAnalyticsQuery } from '../../../hooks/useAnalyticsQuery'
 import { fetchApplicationTrend } from '../../../services/analytics'
-import { SQL_EXAMPLES } from '../../../lib/sqlExamples'
 import { formatPeriodLabel } from '../../../lib/analyticsFormat'
 import type { TrendGranularity } from '../../../types/analytics'
 import { classNames } from '../../../lib/utils'
 
 /**
- * D. Application Trend - applications grouped by week or month, using
+ * Application Trend - applications grouped by week or month, using
  * `applied_date`, from `analytics_application_trend(granularity)`.
  */
 export function ApplicationTrendCard() {
@@ -34,7 +33,6 @@ export function ApplicationTrendCard() {
       isEmpty={rows.length === 0}
       emptyTitle="No dated applications yet"
       emptyDescription="Applications need an applied date to appear in this trend."
-      sql={SQL_EXAMPLES.applicationTrend}
     >
       <div className="mb-3 flex items-center gap-1 text-xs">
         {(['week', 'month'] as const).map((option) => (

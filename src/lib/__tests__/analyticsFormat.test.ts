@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { formatAvgDays, formatPeriodLabel, formatWeekLabel } from '../analyticsFormat'
+import {
+  formatDays,
+  formatMedianResponseTime,
+  formatPercent,
+  formatPeriodLabel,
+  formatResponseSampleCaption,
+} from '../analyticsFormat'
 
 describe('analyticsFormat', () => {
   describe('formatPeriodLabel', () => {
@@ -17,27 +23,77 @@ describe('analyticsFormat', () => {
     })
   })
 
-  describe('formatWeekLabel', () => {
-    it('formats an ISO week-start date', () => {
-      expect(formatWeekLabel('2026-06-15')).toBe('Week of Jun 15')
+  describe('formatDays', () => {
+    it('shows an em dash placeholder when days is null', () => {
+      expect(formatDays(null)).toBe('—')
+    })
+
+    it('pluralizes "days" for a value greater than one', () => {
+      expect(formatDays(5)).toBe('5 days')
+    })
+
+    it('uses the singular "day" when days is exactly 1', () => {
+      expect(formatDays(1)).toBe('1 day')
+    })
+
+    it('rounds to the nearest whole day (no fractional/sub-day precision)', () => {
+      expect(formatDays(4.5)).toBe('5 days')
     })
   })
 
-  describe('formatAvgDays', () => {
-    it('shows a placeholder when avgDays is null (not enough tracked history)', () => {
-      expect(formatAvgDays(null, 0)).toBe('Not enough tracked history yet')
+  describe('formatMedianResponseTime', () => {
+    it('shows a placeholder when medianDays is null (not enough responses)', () => {
+      expect(formatMedianResponseTime(null, 0)).toBe('Not enough responses yet')
     })
 
-    it('shows a placeholder when sampleSize is 0, even if avgDays is somehow non-null', () => {
-      expect(formatAvgDays(5, 0)).toBe('Not enough tracked history yet')
+    it('shows a placeholder when sampleSize is 0, even if medianDays is somehow non-null', () => {
+      expect(formatMedianResponseTime(5, 0)).toBe('Not enough responses yet')
     })
 
-    it('pluralizes "days" for a sample size and value greater than one', () => {
-      expect(formatAvgDays(4.5, 3)).toBe('4.5 days (n=3)')
+    it('renders just the formatted day count - the sample size is a separate caption, not appended here', () => {
+      expect(formatMedianResponseTime(4, 3)).toBe('4 days')
     })
 
-    it('uses the singular "day" when avgDays is exactly 1', () => {
-      expect(formatAvgDays(1, 1)).toBe('1 day (n=1)')
+    it('uses the singular "day" when medianDays rounds to exactly 1', () => {
+      expect(formatMedianResponseTime(1, 1)).toBe('1 day')
+    })
+  })
+
+  describe('formatResponseSampleCaption', () => {
+    it('describes the sample size as applications with a recorded response', () => {
+      expect(formatResponseSampleCaption(18)).toBe('Based on 18 applications with a recorded response')
+    })
+
+    it('uses the singular "application" when sampleSize is exactly 1', () => {
+      expect(formatResponseSampleCaption(1)).toBe('Based on 1 application with a recorded response')
+    })
+
+    it('returns an empty string when sampleSize is 0 (nothing to caption)', () => {
+      expect(formatResponseSampleCaption(0)).toBe('')
+    })
+  })
+
+  describe('formatPercent', () => {
+    it('rounds to the nearest whole percent', () => {
+      expect(formatPercent(1, 4)).toBe('25%')
+      expect(formatPercent(2, 3)).toBe('67%')
+    })
+
+    it('returns an em dash placeholder when the denominator is zero - never divides by zero, never "NaN%" or "Infinity%"', () => {
+      expect(formatPercent(0, 0)).toBe('—')
+      expect(formatPercent(5, 0)).toBe('—')
+    })
+
+    it('returns an em dash placeholder for a negative denominator too (defensive, should never happen with real counts)', () => {
+      expect(formatPercent(1, -1)).toBe('—')
+    })
+
+    it('handles a numerator of zero over a positive denominator as 0%, not a placeholder', () => {
+      expect(formatPercent(0, 10)).toBe('0%')
+    })
+
+    it('handles numerator equal to denominator as 100%', () => {
+      expect(formatPercent(18, 18)).toBe('100%')
     })
   })
 })

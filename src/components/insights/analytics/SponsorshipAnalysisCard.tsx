@@ -2,10 +2,9 @@ import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } fro
 import { AnalyticsCard } from './AnalyticsCard'
 import { useAnalyticsQuery } from '../../../hooks/useAnalyticsQuery'
 import { fetchSponsorshipOutcomes } from '../../../services/analytics'
-import { SQL_EXAMPLES } from '../../../lib/sqlExamples'
 
 /**
- * C. Sponsorship Analysis - current outcomes grouped by sponsorship
+ * Sponsorship Analysis - current outcomes grouped by sponsorship
  * status, from `analytics_sponsorship_outcomes()`.
  */
 export function SponsorshipAnalysisCard() {
@@ -24,7 +23,6 @@ export function SponsorshipAnalysisCard() {
       isEmpty={total === 0}
       emptyTitle="No applications yet"
       emptyDescription="Add a job to see sponsorship breakdowns."
-      sql={SQL_EXAMPLES.sponsorshipOutcomes}
     >
       <div className="h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">

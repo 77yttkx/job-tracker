@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// Every SQL Analytics Lab fetch* function must call supabase.rpc(...) with
-// a fixed, hard-coded function name - never a hand-built query, never a
+// Every analytics fetch* function must call supabase.rpc(...) with a
+// fixed, hard-coded function name - never a hand-built query, never a
 // caller-supplied string as the function name, and never any arbitrary SQL
 // text sent from the browser. This test mocks supabase.rpc and asserts on
 // exactly what each service function calls it with, same convention as
@@ -15,27 +15,20 @@ vi.mock('../supabase', () => ({
 }))
 
 const {
-  fetchApplicationFunnel,
   fetchCompanyOutcomes,
   fetchSponsorshipOutcomes,
   fetchApplicationTrend,
-  fetchStatusTransitionsByWeek,
-  fetchStageReachCounts,
-  fetchAvgStageDurations,
+  fetchTimeToResponseSummary,
+  fetchResponseTimeDistribution,
+  fetchStillWaiting,
+  fetchApplicationFunnelProgression,
 } = await import('../analytics')
 
 afterEach(() => {
   rpcMock.mockReset()
 })
 
-describe('analytics service (SQL Analytics Lab data-access layer)', () => {
-  it('fetchApplicationFunnel calls the analytics_application_funnel RPC with no arguments', async () => {
-    rpcMock.mockResolvedValue({ data: [{ status: 'Applied', job_count: 3 }], error: null })
-    const rows = await fetchApplicationFunnel()
-    expect(rpcMock).toHaveBeenCalledWith('analytics_application_funnel')
-    expect(rows).toEqual([{ status: 'Applied', job_count: 3 }])
-  })
-
+describe('analytics service (Insights data-access layer)', () => {
   it('fetchCompanyOutcomes calls the analytics_company_outcomes RPC', async () => {
     rpcMock.mockResolvedValue({ data: [], error: null })
     await fetchCompanyOutcomes()
@@ -60,38 +53,70 @@ describe('analytics service (SQL Analytics Lab data-access layer)', () => {
     expect(rpcMock).toHaveBeenCalledWith('analytics_application_trend', { granularity: 'week' })
   })
 
-  it('fetchStatusTransitionsByWeek calls the analytics_status_transitions_by_week RPC', async () => {
-    rpcMock.mockResolvedValue({ data: [], error: null })
-    await fetchStatusTransitionsByWeek()
-    expect(rpcMock).toHaveBeenCalledWith('analytics_status_transitions_by_week')
+  it('fetchTimeToResponseSummary calls the analytics_time_to_response_summary RPC and returns the first row', async () => {
+    rpcMock.mockResolvedValue({ data: [{ median_days: 5, sample_size: 12 }], error: null })
+    const row = await fetchTimeToResponseSummary()
+    expect(rpcMock).toHaveBeenCalledWith('analytics_time_to_response_summary')
+    expect(row).toEqual({ median_days: 5, sample_size: 12 })
   })
 
-  it('fetchStageReachCounts calls the analytics_stage_reach_counts RPC', async () => {
+  it('fetchTimeToResponseSummary falls back to a zero/null row when the RPC returns no rows', async () => {
     rpcMock.mockResolvedValue({ data: [], error: null })
-    await fetchStageReachCounts()
-    expect(rpcMock).toHaveBeenCalledWith('analytics_stage_reach_counts')
+    const row = await fetchTimeToResponseSummary()
+    expect(row).toEqual({ median_days: null, sample_size: 0 })
   })
 
-  it('fetchAvgStageDurations calls the analytics_avg_stage_durations RPC', async () => {
+  it('fetchResponseTimeDistribution calls the analytics_response_time_distribution RPC', async () => {
+    rpcMock.mockResolvedValue({ data: [{ bucket: '0-3 days', job_count: 4 }], error: null })
+    const rows = await fetchResponseTimeDistribution()
+    expect(rpcMock).toHaveBeenCalledWith('analytics_response_time_distribution')
+    expect(rows).toEqual([{ bucket: '0-3 days', job_count: 4 }])
+  })
+
+  it('fetchStillWaiting calls the analytics_still_waiting RPC and returns the first row', async () => {
+    rpcMock.mockResolvedValue({ data: [{ waiting_count: 2, longest_wait_days: 9 }], error: null })
+    const row = await fetchStillWaiting()
+    expect(rpcMock).toHaveBeenCalledWith('analytics_still_waiting')
+    expect(row).toEqual({ waiting_count: 2, longest_wait_days: 9 })
+  })
+
+  it('fetchStillWaiting falls back to a zero/null row when the RPC returns no rows', async () => {
     rpcMock.mockResolvedValue({ data: [], error: null })
-    await fetchAvgStageDurations()
-    expect(rpcMock).toHaveBeenCalledWith('analytics_avg_stage_durations')
+    const row = await fetchStillWaiting()
+    expect(row).toEqual({ waiting_count: 0, longest_wait_days: null })
+  })
+
+  it('fetchApplicationFunnelProgression calls the analytics_application_funnel_progression RPC (not the old current-status analytics_application_funnel RPC) and returns the first row', async () => {
+    rpcMock.mockResolvedValue({
+      data: [{ cohort_total: 68, response_count: 18, interview_count: 8, final_round_count: 3, offer_count: 1 }],
+      error: null,
+    })
+    const row = await fetchApplicationFunnelProgression()
+    expect(rpcMock).toHaveBeenCalledWith('analytics_application_funnel_progression')
+    expect(rpcMock).not.toHaveBeenCalledWith('analytics_application_funnel')
+    expect(row).toEqual({ cohort_total: 68, response_count: 18, interview_count: 8, final_round_count: 3, offer_count: 1 })
+  })
+
+  it('fetchApplicationFunnelProgression falls back to an all-zero row when the RPC returns no rows', async () => {
+    rpcMock.mockResolvedValue({ data: [], error: null })
+    const row = await fetchApplicationFunnelProgression()
+    expect(row).toEqual({ cohort_total: 0, response_count: 0, interview_count: 0, final_round_count: 0, offer_count: 0 })
   })
 
   it('returns an empty array (not null/undefined) when the RPC resolves with null data', async () => {
     rpcMock.mockResolvedValue({ data: null, error: null })
-    const rows = await fetchApplicationFunnel()
+    const rows = await fetchCompanyOutcomes()
     expect(rows).toEqual([])
   })
 
   it('throws a SupabaseQueryError (via toQueryError) when the RPC reports an error, and does not silently swallow it', async () => {
     rpcMock.mockResolvedValue({
       data: null,
-      error: { message: 'permission denied for function analytics_application_funnel', code: '42501' },
+      error: { message: 'permission denied for function analytics_company_outcomes', code: '42501' },
     })
-    await expect(fetchApplicationFunnel()).rejects.toMatchObject({
+    await expect(fetchCompanyOutcomes()).rejects.toMatchObject({
       name: 'SupabaseQueryError',
-      message: 'permission denied for function analytics_application_funnel',
+      message: 'permission denied for function analytics_company_outcomes',
       code: '42501',
     })
   })

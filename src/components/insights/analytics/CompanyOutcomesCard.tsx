@@ -1,10 +1,9 @@
 import { AnalyticsCard } from './AnalyticsCard'
 import { useAnalyticsQuery } from '../../../hooks/useAnalyticsQuery'
 import { fetchCompanyOutcomes } from '../../../services/analytics'
-import { SQL_EXAMPLES } from '../../../lib/sqlExamples'
 
 /**
- * B. Company Outcomes - per-company totals and conditional-aggregation
+ * Company Outcomes - per-company totals and conditional-aggregation
  * breakdowns (interview-stage / offer / rejected counts), from
  * `analytics_company_outcomes()`.
  */
@@ -23,7 +22,6 @@ export function CompanyOutcomesCard() {
       isEmpty={rows.length === 0}
       emptyTitle="No applications yet"
       emptyDescription="Add a job to see company-level outcomes."
-      sql={SQL_EXAMPLES.companyOutcomes}
     >
       <div className="max-h-72 overflow-y-auto">
         <table className="w-full text-left text-xs">

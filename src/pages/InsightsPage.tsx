@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { ApplicationOverview } from '../components/insights/ApplicationOverview'
 import { TimeSummary } from '../components/insights/TimeSummary'
 import { DistributionPanel } from '../components/insights/DistributionPanel'
-import { InsightsTabs } from '../components/insights/InsightsTabs'
-import type { InsightsTab } from '../components/insights/InsightsTabs'
-import { SqlAnalyticsLab } from '../components/insights/analytics/SqlAnalyticsLab'
+import { ApplicationFunnelCard } from '../components/insights/analytics/ApplicationFunnelCard'
+import { CompanyOutcomesCard } from '../components/insights/analytics/CompanyOutcomesCard'
+import { SponsorshipAnalysisCard } from '../components/insights/analytics/SponsorshipAnalysisCard'
+import { ApplicationTrendCard } from '../components/insights/analytics/ApplicationTrendCard'
+import { TimeToResponseCard } from '../components/insights/analytics/TimeToResponseCard'
 import { ExportCsvButton } from '../components/ui/ExportCsvButton'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/DataStates'
 import { STATUS_COLORS } from '../lib/constants'
@@ -33,18 +35,29 @@ import type { useJobs } from '../hooks/useJobs'
  * replaces it as the first panel: a plain count/percentage of each job's
  * *current* status only, with no stage inference of any kind.
  *
- * V3.3: a second tab, "SQL Analytics Lab" (<SqlAnalyticsLab>), was added
- * alongside this original view (now "Overview"). Unlike the removed
- * Sankey panel, the Lab's Status History card is built from real
- * recorded events (public.job_status_events, populated by a trigger from
- * supabase-v3_3-sql-analytics.sql forward) - it is honest, not inferred,
- * about which history it does and does not have. The Lab fetches its own
- * data independently via RPC (src/services/analytics.ts) and does not
- * read from jobsState at all, so switching tabs never re-fetches jobs.
+ * V3.3 originally added these as a second "SQL Analytics Lab" tab, each
+ * card showing its underlying read-only query via a "View SQL" toggle.
+ * V3.4 removes that tab/toggle framing: Insights is one scrollable page,
+ * and these are presented as what they are - product analytics, not a
+ * SQL demonstration. The Status History card from that tab (weekly
+ * transition counts plus average per-stage duration) was dropped
+ * entirely rather than just de-SQL-ified: it mainly served to show off
+ * the underlying event log, and its "average days in stage" numbers used
+ * a different, less accurate anchor than Time to Response below (the
+ * first `job_status_events` row instead of `jobs.applied_date`), so
+ * keeping both would have shown two contradictory "how long" figures.
+ * The other four analyses (Application Funnel, Company Outcomes,
+ * Sponsorship Analysis, Application Trend) are real, useful job-search
+ * analytics and are kept as-is, just without the SQL toggle. Each still
+ * fetches its own data independently via RPC (src/services/analytics.ts)
+ * and does not read from jobsState at all.
+ *
+ * V3.4 adds Time to Response: how long it takes an application to get a
+ * first meaningful employer response. See
+ * supabase-v3_4-time-to-response.sql for the exact metric definition.
  */
 export function InsightsPage({ jobsState }: { jobsState: ReturnType<typeof useJobs> }) {
   const { jobs, loading, error, errorDetail, refresh } = jobsState
-  const [tab, setTab] = useState<InsightsTab>('overview')
 
   const statusRows = useMemo(() => statusDistribution(jobs), [jobs])
 
@@ -57,14 +70,10 @@ export function InsightsPage({ jobsState }: { jobsState: ReturnType<typeof useJo
             An overview of every application you&apos;re tracking.
           </p>
         </div>
-        {tab === 'overview' && <ExportCsvButton jobs={jobs} />}
+        <ExportCsvButton jobs={jobs} />
       </div>
 
-      <InsightsTabs active={tab} onChange={setTab} />
-
-      {tab === 'sql-lab' ? (
-        <SqlAnalyticsLab />
-      ) : loading && jobs.length === 0 ? (
+      {loading && jobs.length === 0 ? (
         <LoadingState />
       ) : error ? (
         <ErrorState message={error} detail={errorDetail} onRetry={refresh} />
@@ -87,6 +96,14 @@ export function InsightsPage({ jobsState }: { jobsState: ReturnType<typeof useJo
             rows={statusRows}
             colorFor={(status) => STATUS_COLORS[status].dot}
           />
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <TimeToResponseCard />
+            <ApplicationFunnelCard />
+            <CompanyOutcomesCard />
+            <SponsorshipAnalysisCard />
+            <ApplicationTrendCard />
+          </div>
         </>
       )}
     </div>

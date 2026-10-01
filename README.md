@@ -60,13 +60,15 @@ and a filterable table that only ever show your own jobs.
     underlying numbers as the application overview above but as a compact
     list). There is deliberately no sponsorship distribution panel on
     Insights.
-  - **SQL Analytics Lab (V3.3)** - a second Insights tab, alongside
-    Overview, that runs read-only Postgres SQL functions (RPCs) against
-    your own data: Application Funnel, Company Outcomes, Sponsorship
-    Analysis, Application Trend, and Status History. Every card shows a
-    chart/table, a plain-English explanation, and a collapsible "View
-    SQL" panel with the underlying read-only query. See "SQL Analytics
-    Lab (V3.3)" below for the full architecture and security design.
+  - **Insights analytics (V3.3 / V3.4 / V3.5)** - product analytics
+    cards below the status distribution, each backed by a read-only
+    Postgres function (RPC) against your own data, never a client-built
+    query: Application Funnel (how far applications have *historically
+    progressed*, event-based - see below), Company Outcomes,
+    Sponsorship Analysis, Application Trend, and Time to Response (how
+    long applications take to get a first employer response). See
+    "Insights analytics (V3.3 / V3.4 / V3.5)" below for the full
+    architecture, security design, and metric definitions.
   - Loading, error (with a Retry action), and empty states are distinct:
     "No applications yet" is only ever shown after a query that succeeded
     and genuinely returned zero rows, never while loading or after a
@@ -263,49 +265,131 @@ sessions (yet)" below for the reasoning.
 - **Explicit, per-job opt-in.** No job is read, scanned, or summarized
   until you pick one from the list; nothing runs in the background.
 
-## SQL Analytics Lab (V3.3)
+## Insights analytics (V3.3 / V3.4 / V3.5)
 
-A read-only second tab on the Insights page (`src/components/insights/analytics/`),
-demonstrating practical SQL - real `GROUP BY`/`CASE WHEN`/date-bucketing/
-window-style aggregation - against your own Job Tracker data, with every
-query running as a Postgres function on Supabase, never assembled or run
-in the browser.
+A set of product-analytics cards on the Insights page
+(`src/components/insights/analytics/`), below the application overview
+and status distribution. Every card runs a Postgres function (RPC)
+against your own data, never a client-built query assembled in the
+browser - this is a job-search analytics dashboard, not a SQL
+demonstration.
 
 ### Analyses
 
-| Card | What it shows | SQL skills |
-| --- | --- | --- |
-| Application Funnel | Count of your jobs currently at each status | `COUNT`, `GROUP BY`, `ORDER BY` |
-| Company Outcomes | Per-company totals, interview-stage reach, offers, rejections | `GROUP BY`, `CASE WHEN`, conditional aggregation |
-| Sponsorship Analysis | Job counts and current outcomes by sponsorship value | conditional aggregation, null-safe grouping |
-| Application Trend | Applications by week or month, from `applied_date` | date functions, time bucketing, ordered series |
-| Status History | Weekly transition activity, stage-reach counts, and average time-to-stage, built from `job_status_events` | CTEs, inner joins, `date_trunc`, duration math |
+| Card | What it shows |
+| --- | --- |
+| Application Funnel | How far applications have *historically* progressed (Applications -> Employer Response -> Interview -> Final Round -> Offer) - not where they sit today |
+| Company Outcomes | Per-company totals, interview-stage reach, offers, rejections |
+| Sponsorship Analysis | Job counts and current outcomes by sponsorship value |
+| Application Trend | Applications by week or month, from `applied_date` |
+| Time to Response | Median days to a first employer response, a day-bucketed distribution, and how many applications are still waiting |
 
-Each card shows its chart/table plus loading/error/empty states, a
-one-sentence plain-English explanation, and a collapsible **View SQL**
-section with a readable, read-only example of the underlying query
-(`src/lib/sqlExamples.ts`) - display-only text; nothing in the Lab ever
-sends that string to Supabase. The actual data always comes from calling
-one of the RPCs below via `supabase.rpc(...)` (`src/services/analytics.ts`).
+Each card shows its chart/table plus loading/error/empty states and a
+one-sentence plain-English explanation. The data always comes from
+calling one of the RPCs below via `supabase.rpc(...)`
+(`src/services/analytics.ts`) - there is no raw-SQL view in the UI.
 
-### Status history is real, not inferred - and starts from this migration forward
+### Time to Response (V3.4)
 
-Unlike the pre-V2.5.2 Sankey panel this app removed (see the note under
-Features), the Status History card is not guessing that a job "must have"
-passed through earlier stages. It's built entirely from
-`public.job_status_events`, a table that only ever contains events
-actually recorded by a database trigger from the moment
-`supabase-v3_3-sql-analytics.sql` was run. There is no backfill for jobs
-that existed before that point - the card and its RPCs are explicit about
-this everywhere a number could otherwise look misleading: "Status history
-begins when tracking is enabled; older job changes are not reconstructed."
-A job created before the migration only starts accumulating history once
-its status next changes (or, for a brand-new job, from the moment it's
-created). Every duration metric (e.g. "Applied to OA") is computed only
-over jobs that have **both** of the two events it needs - it's never
-invented or estimated for a job missing one of them.
+**Definition:** for a job with a response, `time_to_first_response =
+(first qualifying employer-response event's date) - jobs.applied_date`.
 
-### Database layer (`supabase-v3_3-sql-analytics.sql`)
+- **Anchored on `jobs.applied_date`**, not on the first recorded
+  `job_status_events` row. That event only records when the job was
+  *added to this tracker*, which is often later than the real
+  application date (logging a job today that you applied to last week,
+  or entering one that's already mid-pipeline) - `applied_date` is the
+  correct "when did I actually apply" anchor.
+- **Qualifying responses** are `OA`, `1st Round`, `2nd Round`, `Final
+  Round`, `Offer`, and `Rejected` - never `Applied` (the starting state)
+  or `Ghosted` (a status the user assigns themselves when they give up
+  waiting, not something the employer did).
+- Only the **earliest** qualifying event on or after `applied_date` is
+  used. A job is excluded from the calculation entirely if
+  `applied_date` is missing, or if every qualifying event predates it -
+  no historical response time is ever fabricated from current status to
+  work around missing history.
+- The summary metric is the **median** (not the mean) of all qualifying
+  jobs' response times, plus a distribution across five day buckets
+  (`0-3`, `4-7`, `8-14`, `15-30`, `30+ days`).
+- **Still Waiting is a deliberate exception**: it's based on each job's
+  *current* status (`status = 'Applied'`), not on event history. This is
+  the one place this feature intentionally prefers current state over
+  recorded events, because it also correctly covers jobs with no event
+  history at all (anything created before this migration existed) - the
+  alternative ("no qualifying event exists yet") would wrongly flag
+  plenty of old, already-resolved pre-migration jobs as still waiting.
+  Still Waiting never auto-reclassifies anything as `Ghosted`.
+- **Consequence, not a bug:** a job whose entire event history predates
+  this migration (or `applied_date`) simply doesn't contribute to the
+  historical median/distribution. It can still count toward Still
+  Waiting if its current status is `Applied`.
+
+### Application Funnel (V3.5)
+
+Status Distribution and Application Funnel intentionally answer two
+different questions and no longer show the same information:
+
+- **Status Distribution** ("Where are my applications right now?") -
+  unchanged, current `status` only, exactly as before.
+- **Application Funnel** ("How far have my applications *historically*
+  progressed through the hiring process?") - event-based, built from
+  `public.job_status_events`, not from current status.
+
+**Stages are cumulative, not mutually exclusive.** A single application
+can count toward several stages at once - `Applied -> OA -> 1st Round ->
+Rejected` counts as Applications *and* Employer Response *and*
+Interview, even though its current status is `Rejected` and it never
+reached Final Round or Offer. It is never classified as only "Rejected."
+
+| Stage | Counts an application if it ever had an event with `to_status` in |
+| --- | --- |
+| Applications | (cohort membership itself - see below) |
+| Employer Response | `OA`, `1st Round`, `2nd Round`, `Final Round`, `Offer`, `Rejected` |
+| Interview | `1st Round`, `2nd Round`, `Final Round`, `Offer` |
+| Final Round | `Final Round`, `Offer` |
+| Offer | `Offer` |
+
+`Applied` never qualifies anything (it's the starting state); `Ghosted`
+never counts as an Employer Response (it's a status you assign
+yourself when giving up waiting, not something the employer did) - the
+same reasoning as Time to Response's qualifying-response set above.
+
+**The analyzable cohort (the "N applications" the percentages are out
+of) is not every job you've ever tracked.** `job_status_events` has no
+backfill, so a job created before `supabase-v3_3-sql-analytics.sql` was
+run has either zero events, or - if it changed status again after that
+- only partial history (its first recorded event reflects whatever
+status it already happened to be in, not its true starting point).
+Counting those jobs would risk silently *understating* conversion: a
+job might have genuinely had an interview that was simply never logged
+step by step.
+
+The cohort is therefore: **every job with at least one
+`job_status_events` row where `from_status is null`.** That value is
+written only by the `after insert` trigger - i.e. only for a job that
+was itself created after event tracking began - so it's a direct,
+self-proving signal of complete history, with no separate "migration
+ran at such-and-such time" marker needed anywhere. The card always
+shows this cohort size explicitly ("Based on N applications with
+complete event history...") rather than silently treating all-time
+applications as 100% - older, partially-tracked applications are
+visibly excluded, never guessed at.
+
+**Reach % and previous-stage conversion % are computed in the
+frontend** from the raw stage counts the RPC returns, the same split
+used by the rest of Insights (percentages aren't computed in SQL here
+either). Both are divide-by-zero safe - an empty cohort or a stage with
+zero prior reach renders as "—", never `NaN%`/`Infinity%`.
+
+**The original `analytics_application_funnel()` RPC (V3.3, current-
+status distribution) is untouched and still exists in the database** -
+it's simply no longer called by the frontend, which now calls
+`analytics_application_funnel_progression()` (V3.5) instead. Consistent
+with this app's additive-only migration policy, nothing valid is
+dropped just because the UI stopped using it.
+
+### Database layer (`supabase-v3_3-sql-analytics.sql`, `supabase-v3_4-time-to-response.sql`, `supabase-v3_5-application-funnel.sql`)
 
 - **`public.job_status_events`** - `job_id`, `user_id`, `from_status`
   (nullable - a job's first event has no "from"), `to_status`,
@@ -328,45 +412,60 @@ invented or estimated for a job missing one of them.
   as an RPC. Two triggers are attached: `after insert` (records the
   initial status) and `after update of status` (records a new event only
   when `new.status is distinct from old.status`, so a no-op
-  `set status = status` doesn't create a duplicate).
+  `set status = status` doesn't create a duplicate). **No backfill:**
+  this table only ever contains events recorded from the moment
+  `supabase-v3_3-sql-analytics.sql` was run forward.
 - **`public.jobs` itself is unchanged** - no new column, no dropped or
-  altered column, and none of its four existing RLS policies are
-  created, dropped, or altered. The only thing attached to `public.jobs`
-  is the two triggers above. Verified by
-  `src/__tests__/sqlAnalyticsMigration.test.ts`, which reads the
-  migration file directly and asserts on exactly this.
-- **Seven read-only RPCs** (`analytics_application_funnel`,
-  `analytics_company_outcomes`, `analytics_sponsorship_outcomes`,
-  `analytics_application_trend`, `analytics_status_transitions_by_week`,
-  `analytics_stage_reach_counts`, `analytics_avg_stage_durations`) are
-  each `language sql` (a single query, no dynamic SQL), `security
-  invoker` (runs as the calling user, inheriting RLS exactly as any other
-  query they ran would - never bypasses it), `stable`, and additionally
-  filtered by `where user_id = auth.uid()` in the query body itself as a
-  second, belt-and-suspenders scope. `EXECUTE` is revoked from `PUBLIC`
-  and granted only to `authenticated`. The Application Trend RPC's
-  `granularity` argument is never interpolated into dynamic SQL - a
+  altered column, and none of its existing RLS policies are created,
+  dropped, or altered by either migration. The only thing attached to
+  `public.jobs` is the two triggers above. Verified by
+  `src/__tests__/sqlAnalyticsMigration.test.ts` and
+  `src/__tests__/timeToResponseMigration.test.ts`, which read the
+  migration files directly and assert on exactly this.
+- **Seven RPCs in `supabase-v3_3-sql-analytics.sql`**
+  (`analytics_application_funnel`, `analytics_company_outcomes`,
+  `analytics_sponsorship_outcomes`, `analytics_application_trend`,
+  `analytics_status_transitions_by_week`, `analytics_stage_reach_rates`,
+  `analytics_avg_stage_durations`), **three more in
+  `supabase-v3_4-time-to-response.sql`** (`analytics_time_to_response_summary`,
+  `analytics_response_time_distribution`, `analytics_still_waiting`), and
+  **one more in `supabase-v3_5-application-funnel.sql`**
+  (`analytics_application_funnel_progression`). The frontend calls
+  three of the seven V3.3 RPCs (`analytics_company_outcomes`,
+  `analytics_sponsorship_outcomes`, `analytics_application_trend`) plus
+  all three V3.4 RPCs plus the one V3.5 RPC - the remaining four V3.3
+  RPCs (`analytics_application_funnel`,
+  `analytics_status_transitions_by_week`, `analytics_stage_reach_rates`,
+  `analytics_avg_stage_durations`) remain defined in the database,
+  unused by any current UI, rather than being dropped (this app's
+  migrations are additive-only; nothing still-valid is ever deleted from
+  the schema just because the frontend stopped calling it) -
+  `analytics_application_funnel` in particular is kept deliberately, as
+  the record of the old current-status distribution this RPC used to
+  power before Application Funnel became event-based in V3.5.
+  Every RPC is `language sql` (a single query, no dynamic SQL),
+  `security invoker` (runs as the calling user, inheriting RLS exactly
+  as any other query they ran would - never bypasses it), `stable`, and
+  additionally filtered by `where user_id = auth.uid()` (or, in V3.4,
+  `auth.uid()` inside the query) in the query body itself as a second,
+  belt-and-suspenders scope. `EXECUTE` is revoked from `PUBLIC` and
+  granted only to `authenticated` on every one. The Application Trend
+  RPC's `granularity` argument is never interpolated into dynamic SQL - a
   `case when granularity = 'week' then 'week' else 'month' end`
   expression forces it to resolve to exactly one of two fixed literals
   before it ever reaches `date_trunc`.
 - **Idempotent and safe to re-run.** Every `create table`/`create index`
   uses `if not exists`, every function uses `create or replace`, and
-  every trigger/policy is dropped then recreated. Re-running the
-  migration never duplicates objects and never re-processes existing
-  rows (there is no backfill statement in it at all).
-
-### What the frontend can and cannot do
-
+  every trigger/policy is dropped then recreated. Re-running any of the
+  three migrations never duplicates objects and never re-processes
+  existing rows (there is no backfill statement in any of them).
 - `src/services/analytics.ts` only ever calls `supabase.rpc(<fixed
   string>)` - there is no `supabase.from('job_status_events')` call
-  anywhere in the Lab, no client-built query, and no way for a caller to
-  influence which SQL runs beyond the `week`/`month` trend toggle (itself
-  constrained server-side, as above).
-- There is no arbitrary-SQL input anywhere in the UI - every analysis is
-  one of the seven fixed RPCs, called with no arguments (or the trend's
-  fixed `week`/`month` choice).
-- No external AI, API key, or network dependency of any kind - the Lab
-  is Supabase Postgres and this app's own React/Recharts, nothing else.
+  anywhere in it, no client-built query, and no way for a caller to
+  influence which SQL runs beyond the trend's `week`/`month` toggle
+  (itself constrained server-side, as above). No external AI, API key,
+  or network dependency of any kind - this is Supabase Postgres and this
+  app's own React/Recharts, nothing else.
 
 ## Tech stack
 
@@ -463,32 +562,42 @@ The app runs at http://localhost:5173 by default.
    Skipping any of these three just means the affected Interview Prep
    pages will show query errors when opened - the rest of the Job
    Tracker is unaffected either way.
-8. **Optional - only if you want the SQL Analytics Lab (Insights ->
-   "SQL Analytics Lab" tab):** run `supabase-v3_3-sql-analytics.sql` in
-   the SQL editor, once, after `supabase-v2_6-multi-user.sql` (it does
-   not depend on any of the V3/V3.1/V3.2 Interview Prep migrations).
-   It's purely additive:
-   - Creates one new table, `public.job_status_events`, with RLS enabled
-     and a single `select`-own policy - the frontend has no insert/
-     update/delete grant on it at all.
-   - Attaches an `after insert` and an `after update of status` trigger
-     to `public.jobs` that are the table's only writer (a
+8. **Required for the Insights analytics cards** (Application Funnel,
+   Company Outcomes, Sponsorship Analysis, Application Trend, Time to
+   Response): run `supabase-v3_3-sql-analytics.sql`, then
+   `supabase-v3_4-time-to-response.sql`, then
+   `supabase-v3_5-application-funnel.sql`, in the SQL editor, once, in
+   that order, after `supabase-v2_6-multi-user.sql` (none of the three
+   depends on any of the V3/V3.1/V3.2 Interview Prep migrations). All
+   three are purely additive:
+   - `supabase-v3_3-sql-analytics.sql` creates one new table,
+     `public.job_status_events`, with RLS enabled and a single
+     `select`-own policy - the frontend has no insert/update/delete grant
+     on it at all - plus an `after insert` and an `after update of
+     status` trigger on `public.jobs` that are the table's only writer (a
      `security definer` function with a pinned `search_path`, callable
-     only as a trigger, never directly). It does not add, drop, or alter
-     any column on `public.jobs`, and does not touch any of the four
-     existing `public.jobs` RLS policies - verified by
-     `src/__tests__/sqlAnalyticsMigration.test.ts`, which reads the
-     migration file directly.
-   - Creates seven read-only, `security invoker`, `auth.uid()`-scoped SQL
-     functions (RPCs) that the frontend calls via `supabase.rpc(...)` -
-     see "SQL Analytics Lab (V3.3)" below for the full list and the
-     security reasoning.
-   - **No backfill:** it does not invent a synthetic history for jobs
-     that already existed before you ran it - status-history metrics on
-     the Status History card only ever reflect events recorded from this
-     migration forward. Skipping this migration just means the SQL
-     Analytics Lab tab shows query errors when opened; the rest of the
-     Job Tracker is unaffected.
+     only as a trigger, never directly), and seven read-only RPCs. It
+     does not add, drop, or alter any column on `public.jobs`, and does
+     not touch any of its existing RLS policies - verified by
+     `src/__tests__/sqlAnalyticsMigration.test.ts`.
+   - `supabase-v3_4-time-to-response.sql` adds three more read-only RPCs
+     for Time to Response on top of the same data - no new table, column,
+     index, trigger, or RLS policy at all - verified by
+     `src/__tests__/timeToResponseMigration.test.ts`.
+   - `supabase-v3_5-application-funnel.sql` adds one more read-only RPC,
+     `analytics_application_funnel_progression`, for the event-based
+     Application Funnel - again no new table, column, index, trigger, or
+     RLS policy, and it leaves the original `analytics_application_funnel`
+     RPC completely untouched in the database - verified by
+     `src/__tests__/applicationFunnelMigration.test.ts`. See "Insights
+     analytics (V3.3 / V3.4 / V3.5)" below for the full RPC list and
+     every metric definition.
+   - **No backfill in any of the three:** none of them invents a
+     synthetic history for jobs that already existed before you ran
+     them - event-based metrics only ever reflect events recorded from
+     `supabase-v3_3-sql-analytics.sql` forward. Skipping any of them just
+     means the affected Insights cards show query errors when opened;
+     the rest of the Job Tracker is unaffected.
 9. **Not required as of V3.1:** Interview Prep no longer uses Gemini or
    any external AI provider, so there is nothing to deploy or configure
    for it. The old step 8 (Gemini secrets + `generate-star-answer`
@@ -1118,13 +1227,28 @@ still safe. Concretely, the guarantees are now:
   passed through earlier stages. Insights always reflects every stored
   job; it intentionally has no filter bar of its own (use the Table page
   to filter).
-- The Insights **SQL Analytics Lab** tab's Status History card *does*
-  have real transition history (`public.job_status_events`), but only
-  from the moment `supabase-v3_3-sql-analytics.sql` was run - there is no
-  backfill, so a job's history there begins at whichever comes later: the
-  job's creation, or that migration. See "SQL Analytics Lab (V3.3)"
-  above. If you haven't run that migration at all, the SQL Analytics Lab
-  tab shows query errors when opened; the rest of the app is unaffected.
+- **Time to Response** (see "Insights analytics (V3.3 / V3.4 / V3.5)"
+  above) only has data from the moment `supabase-v3_3-sql-analytics.sql`
+  was run - there is no backfill, so a job without a qualifying response
+  event recorded on or after its `applied_date` simply doesn't
+  contribute to the median or distribution. This disproportionately
+  affects jobs created before that migration. "Still Waiting" is
+  unaffected by this gap, since it's deliberately based on current
+  status rather than event history.
+- **Application Funnel** (see "Insights analytics (V3.3 / V3.4 / V3.5)"
+  above) only includes applications with *complete* recorded event
+  history - a job created before `supabase-v3_3-sql-analytics.sql` ran
+  is excluded entirely, even if it's since changed status, because its
+  earlier progression can't be verified. This is often a stricter
+  (smaller) set than Time to Response's, and the card always states its
+  cohort size explicitly rather than treating all applications as the
+  denominator. Status Distribution is unaffected by any of this, since
+  it's current-status based.
+- If you haven't run `supabase-v3_3-sql-analytics.sql`,
+  `supabase-v3_4-time-to-response.sql`, and
+  `supabase-v3_5-application-funnel.sql` at all, the Insights analytics
+  cards show query errors when opened; the rest of the app is
+  unaffected.
 - Table filters run client-side.
 - `parse-job` cannot parse JavaScript-rendered, login-gated, or
   CAPTCHA-protected pages - see "URL parsing limitations" above.

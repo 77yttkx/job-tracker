@@ -1,57 +1,103 @@
-import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { AnalyticsCard } from './AnalyticsCard'
 import { useAnalyticsQuery } from '../../../hooks/useAnalyticsQuery'
-import { fetchApplicationFunnel } from '../../../services/analytics'
-import { STATUS_COLORS, JOB_STATUSES } from '../../../lib/constants'
-import type { JobStatus } from '../../../lib/constants'
-import { SQL_EXAMPLES } from '../../../lib/sqlExamples'
-
-const KNOWN_STATUSES = new Set<string>(JOB_STATUSES)
-
-function isJobStatus(status: string): status is JobStatus {
-  return KNOWN_STATUSES.has(status)
-}
+import { fetchApplicationFunnelProgression } from '../../../services/analytics'
+import { formatPercent } from '../../../lib/analyticsFormat'
 
 /**
- * A. Application Funnel - count of jobs currently at each status, from
- * `analytics_application_funnel()` (COUNT / GROUP BY / ORDER BY).
+ * Application Funnel (V3.5) - how far applications have EVER
+ * historically progressed, not where they sit today (that's Status
+ * Distribution, elsewhere on Insights). Built from
+ * `analytics_application_funnel_progression()`
+ * (supabase-v3_5-application-funnel.sql), which is event-based
+ * (`public.job_status_events`) rather than a `jobs.status` snapshot.
+ *
+ * A job can and should count toward several stages at once - e.g.
+ * Applied -> OA -> 1st Round -> Rejected counts as Applications +
+ * Employer Response + Interview, even though it's currently Rejected
+ * and never reached Final Round or Offer. Stages are cumulative
+ * ("reached this stage or later"), never mutually exclusive buckets.
+ *
+ * The cohort (the "N applications" the percentages are out of) is only
+ * jobs with a FULLY recorded event history - see the migration's header
+ * comment for why older, partially-tracked applications can't safely be
+ * included without risking an understated/misleading conversion rate.
+ * This is why the card leads with a plain-language caption naming that
+ * cohort instead of silently treating "all applications" as 100%.
  */
 export function ApplicationFunnelCard() {
-  const { data, loading, error, errorDetail, refresh } = useAnalyticsQuery(fetchApplicationFunnel)
-  const rows = (data ?? []).map((row) => ({
-    ...row,
-    label: `${row.job_count}`,
-    color: isJobStatus(row.status) ? STATUS_COLORS[row.status].hex : '#94a3b8',
-  }))
-  const total = rows.reduce((sum, row) => sum + row.job_count, 0)
+  const { data, loading, error, errorDetail, refresh } = useAnalyticsQuery(fetchApplicationFunnelProgression)
+
+  const cohortTotal = data?.cohort_total ?? 0
+  const responseCount = data?.response_count ?? 0
+  const interviewCount = data?.interview_count ?? 0
+  const finalRoundCount = data?.final_round_count ?? 0
+  const offerCount = data?.offer_count ?? 0
+
+  // `previous` is each stage's immediate predecessor, used for the
+  // "from previous" conversion rate. Employer Response's previous stage
+  // is Applications itself (previous === cohortTotal), which makes its
+  // "from previous" and "overall" percentages always identical - showing
+  // both would just repeat the same number twice. `showSingleRate` marks
+  // that one case so the UI collapses it into a single "X% of
+  // applications" line instead. Interview/Final Round/Offer still show
+  // both rates, since their previous stage is a strict subset of the
+  // cohort and the two percentages are genuinely different numbers.
+  const stages = [
+    { label: 'Applications', count: cohortTotal, previous: null as number | null, showSingleRate: false },
+    { label: 'Employer Response', count: responseCount, previous: cohortTotal, showSingleRate: true },
+    { label: 'Interview', count: interviewCount, previous: responseCount, showSingleRate: false },
+    { label: 'Final Round', count: finalRoundCount, previous: interviewCount, showSingleRate: false },
+    { label: 'Offer', count: offerCount, previous: finalRoundCount, showSingleRate: false },
+  ]
 
   return (
     <AnalyticsCard
       title="Application Funnel"
-      explanation="How many of your applications currently sit at each status."
+      explanation="How far your applications have historically progressed through the hiring process - not just where they stand today."
       loading={loading}
       error={error}
       errorDetail={errorDetail}
       onRetry={refresh}
-      isEmpty={total === 0}
-      emptyTitle="No applications yet"
-      emptyDescription="Add a job to see your funnel."
-      sql={SQL_EXAMPLES.applicationFunnel}
+      isEmpty={cohortTotal === 0}
+      emptyTitle="No fully-tracked applications yet"
+      emptyDescription="This funnel needs applications with complete recorded history. Add a new job, or wait for status changes on existing ones, to start building it."
     >
-      <div className="h-72 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 40, bottom: 4, left: 4 }}>
-            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
-            <YAxis type="category" dataKey="status" width={88} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
-            <Tooltip cursor={{ fill: 'rgba(148, 163, 184, 0.12)' }} />
-            <Bar dataKey="job_count" radius={[0, 4, 4, 0]} barSize={16} isAnimationActive={false}>
-              {rows.map((row) => (
-                <Cell key={row.status} fill={row.color} />
-              ))}
-              <LabelList dataKey="label" position="right" className="fill-slate-600 dark:fill-slate-300" fontSize={11} />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+      <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+        Based on {cohortTotal} application{cohortTotal === 1 ? '' : 's'} with complete event history. Older
+        applications without complete recorded history aren&apos;t included.
+      </p>
+      <div className="flex flex-col">
+        {stages.map((stage, index) => (
+          <div key={stage.label}>
+            {index > 0 && (
+              <div className="py-1 pl-1 text-slate-300 dark:text-slate-600" aria-hidden="true">
+                ↓
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2 dark:border-slate-700">
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{stage.label}</span>
+              <div className="flex items-baseline gap-2 text-right">
+                <span className="text-sm font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                  {stage.count}
+                </span>
+                {stage.previous === null ? (
+                  <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                    {formatPercent(stage.count, cohortTotal)}
+                  </span>
+                ) : stage.showSingleRate ? (
+                  <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                    {formatPercent(stage.count, cohortTotal)} of applications
+                  </span>
+                ) : (
+                  <span className="text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                    {formatPercent(stage.count, stage.previous)} from previous · {formatPercent(stage.count, cohortTotal)}{' '}
+                    overall
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </AnalyticsCard>
   )
