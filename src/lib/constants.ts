@@ -47,4 +47,28 @@ export const SPONSORSHIP_COLORS: Record<Sponsorship, { bg: string; text: string;
   Unknown: { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-600 dark:text-slate-400', dot: 'bg-slate-400' },
 }
 
+/**
+ * Application Source (V3.6) - which channel a job application came
+ * through. Always a deliberate, manual user choice: never inferred from
+ * job_url, company, role, jd, notes, or any other field. Mirrors the
+ * JOB_STATUSES/SPONSORSHIP_VALUES pattern exactly - the single source of
+ * truth reused by the database check constraint
+ * (supabase-v3_6-application-source.sql), the data-access layer, the
+ * Add/Edit modal, the Table's inline editor, and CSV/Excel import.
+ */
+export const APPLICATION_SOURCES = [
+  'Company Website',
+  'LinkedIn',
+  'Referral',
+  'Handshake',
+  'Career Fair',
+  'Recruiter',
+  'Other',
+  'Unknown',
+] as const
+
+export type ApplicationSource = (typeof APPLICATION_SOURCES)[number]
+
+export const DEFAULT_APPLICATION_SOURCE: ApplicationSource = 'Unknown'
+
 export const THEME_STORAGE_KEY = 'job-tracker-theme'

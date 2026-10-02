@@ -1,4 +1,4 @@
-import type { JobStatus, Sponsorship } from '../lib/constants'
+import type { ApplicationSource, JobStatus, Sponsorship } from '../lib/constants'
 
 /**
  * Row shape as stored in Supabase `public.jobs`. `user_id` is set
@@ -19,6 +19,7 @@ export interface Job {
   notes: string | null
   location: string | null
   sponsorship: Sponsorship
+  application_source: ApplicationSource
   created_at: string
   updated_at: string
 }
@@ -34,6 +35,7 @@ export type NewJob = {
   notes?: string | null
   location?: string | null
   sponsorship?: Sponsorship
+  application_source?: ApplicationSource
 }
 
 /** Payload for updating a job. */

@@ -1,7 +1,14 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { Loader2, Sparkles, X } from 'lucide-react'
-import { DEFAULT_SPONSORSHIP, DEFAULT_STATUS, JOB_STATUSES, SPONSORSHIP_VALUES } from '../../lib/constants'
-import type { JobStatus, Sponsorship } from '../../lib/constants'
+import {
+  APPLICATION_SOURCES,
+  DEFAULT_APPLICATION_SOURCE,
+  DEFAULT_SPONSORSHIP,
+  DEFAULT_STATUS,
+  JOB_STATUSES,
+  SPONSORSHIP_VALUES,
+} from '../../lib/constants'
+import type { ApplicationSource, JobStatus, Sponsorship } from '../../lib/constants'
 import { isValidHttpUrl } from '../../lib/utils'
 import { DateField } from '../ui/DateField'
 import { parseJobUrl } from '../../services/jobParser'
@@ -21,6 +28,7 @@ interface FormState {
   role: string
   location: string
   sponsorship: Sponsorship
+  application_source: ApplicationSource
   jd: string
   applied_date: string
   status: JobStatus
@@ -33,6 +41,7 @@ const EMPTY_FORM: FormState = {
   role: '',
   location: '',
   sponsorship: DEFAULT_SPONSORSHIP,
+  application_source: DEFAULT_APPLICATION_SOURCE,
   jd: '',
   applied_date: '',
   status: DEFAULT_STATUS,
@@ -46,6 +55,7 @@ function jobToForm(job: Job): FormState {
     role: job.role ?? '',
     location: job.location ?? '',
     sponsorship: job.sponsorship,
+    application_source: job.application_source,
     jd: job.jd ?? '',
     applied_date: job.applied_date ?? '',
     status: job.status,
@@ -119,6 +129,9 @@ export function JobModal({ open, job, onClose, addJob, editJob }: JobModalProps)
         role: prev.role || outcome.fields!.role || '',
         location: prev.location || outcome.fields!.location || '',
         sponsorship: prev.sponsorship !== DEFAULT_SPONSORSHIP ? prev.sponsorship : outcome.fields!.sponsorship,
+        // application_source is intentionally never touched by URL
+        // parsing - it is never inferred from job_url or any parsed
+        // field, only ever set by an explicit user choice below.
         jd: prev.jd || outcome.fields!.jd || '',
         applied_date: prev.applied_date || outcome.fields!.applied_date || '',
       }))
@@ -150,6 +163,7 @@ export function JobModal({ open, job, onClose, addJob, editJob }: JobModalProps)
       role: form.role.trim() || null,
       location: form.location.trim() || null,
       sponsorship: form.sponsorship,
+      application_source: form.application_source,
       jd: form.jd.trim() || null,
       applied_date: form.applied_date || null,
       status: form.status,
@@ -286,6 +300,21 @@ export function JobModal({ open, job, onClose, addJob, editJob }: JobModalProps)
                 </select>
               </Field>
             </div>
+
+            <Field label="Application source" htmlFor="application_source">
+              <select
+                id="application_source"
+                value={form.application_source}
+                onChange={(e) => updateField('application_source', e.target.value as ApplicationSource)}
+                className={inputClass(false)}
+              >
+                {APPLICATION_SOURCES.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </Field>
 
             <Field label="Job description" htmlFor="jd">
               <textarea

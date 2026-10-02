@@ -7,6 +7,7 @@ import { CompanyOutcomesCard } from '../components/insights/analytics/CompanyOut
 import { SponsorshipAnalysisCard } from '../components/insights/analytics/SponsorshipAnalysisCard'
 import { ApplicationTrendCard } from '../components/insights/analytics/ApplicationTrendCard'
 import { TimeToResponseCard } from '../components/insights/analytics/TimeToResponseCard'
+import { ApplicationSourcePerformanceCard } from '../components/insights/analytics/ApplicationSourcePerformanceCard'
 import { ExportCsvButton } from '../components/ui/ExportCsvButton'
 import { EmptyState, ErrorState, LoadingState } from '../components/ui/DataStates'
 import { STATUS_COLORS } from '../lib/constants'
@@ -55,6 +56,14 @@ import type { useJobs } from '../hooks/useJobs'
  * V3.4 adds Time to Response: how long it takes an application to get a
  * first meaningful employer response. See
  * supabase-v3_4-time-to-response.sql for the exact metric definition.
+ *
+ * V3.6 adds Application Source Performance: how tracked application
+ * channels compare, purely descriptively (no causal claims, no ranking,
+ * no Best/Worst labels). See supabase-v3_6-application-source.sql and
+ * ApplicationSourcePerformanceCard.tsx for the full metric definitions -
+ * it is a distinct analysis from every card above, never a duplicate of
+ * Status Distribution, Application Funnel, Time to Response, or
+ * Sponsorship Analysis under a new name.
  */
 export function InsightsPage({ jobsState }: { jobsState: ReturnType<typeof useJobs> }) {
   const { jobs, loading, error, errorDetail, refresh } = jobsState
@@ -100,6 +109,7 @@ export function InsightsPage({ jobsState }: { jobsState: ReturnType<typeof useJo
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <TimeToResponseCard />
             <ApplicationFunnelCard />
+            <ApplicationSourcePerformanceCard />
             <CompanyOutcomesCard />
             <SponsorshipAnalysisCard />
             <ApplicationTrendCard />

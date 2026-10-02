@@ -5,6 +5,7 @@ import type {
   CompanyOutcomeRow,
   FunnelProgressionRow,
   ResponseTimeDistributionRow,
+  SourcePerformanceRow,
   SponsorshipOutcomeRow,
   StillWaitingRow,
   TimeToResponseSummaryRow,
@@ -14,8 +15,9 @@ import type {
 /**
  * Data-access layer for Insights' analytics. Every function here calls a
  * Postgres RPC defined in supabase-v3_3-sql-analytics.sql,
- * supabase-v3_4-time-to-response.sql, or
- * supabase-v3_5-application-funnel.sql via `supabase.rpc(...)` - never a
+ * supabase-v3_4-time-to-response.sql,
+ * supabase-v3_5-application-funnel.sql, or
+ * supabase-v3_6-application-source.sql via `supabase.rpc(...)` - never a
  * hand-built query, and never any SQL string assembled in the browser.
  * Each RPC is `security invoker` and filters by `auth.uid()` on the
  * server, so these calls only ever return the signed-in user's own data;
@@ -101,4 +103,18 @@ export async function fetchApplicationFunnelProgression(): Promise<FunnelProgres
   return (
     rows[0] ?? { cohort_total: 0, response_count: 0, interview_count: 0, final_round_count: 0, offer_count: 0 }
   )
+}
+
+/**
+ * Application Source Performance (V3.6) - raw per-source counts. See
+ * supabase-v3_6-application-source.sql for the full metric definition
+ * (application_count is every application from that source; tracked_count/
+ * response_count/interview_count are scoped to the complete-history
+ * cohort only). Percentages are computed in the frontend, never here.
+ */
+export async function fetchSourcePerformance(): Promise<SourcePerformanceRow[]> {
+  assertConfigured()
+  const { data, error } = await supabase.rpc('analytics_source_performance')
+  if (error) throw toQueryError(error)
+  return (data ?? []) as SourcePerformanceRow[]
 }

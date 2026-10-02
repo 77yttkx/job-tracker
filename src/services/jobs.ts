@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, supabase } from './supabase'
-import { DEFAULT_SPONSORSHIP, DEFAULT_STATUS } from '../lib/constants'
+import { DEFAULT_APPLICATION_SOURCE, DEFAULT_SPONSORSHIP, DEFAULT_STATUS } from '../lib/constants'
 import type { Job, JobUpdate, NewJob } from '../types/job'
 
 const TABLE = 'jobs'
@@ -63,6 +63,9 @@ export async function fetchJobs(): Promise<Job[]> {
  * cannot create or reassign a row to another user.
  *
  * Missing/unparsed fields are simply omitted (left null in the DB).
+ * `application_source` is never inferred here or anywhere else - it
+ * defaults to 'Unknown' only when the caller didn't set one explicitly
+ * (Add/Edit modal, Table inline edit, or a recognized import column).
  */
 export async function createJob(input: NewJob, userId: string): Promise<Job> {
   assertConfigured()
@@ -77,13 +80,14 @@ export async function createJob(input: NewJob, userId: string): Promise<Job> {
     notes: input.notes ?? null,
     location: input.location ?? null,
     sponsorship: input.sponsorship ?? DEFAULT_SPONSORSHIP,
+    application_source: input.application_source ?? DEFAULT_APPLICATION_SOURCE,
   }
   const { data, error } = await supabase.from(TABLE).insert(payload).select().single()
   if (error) throw toQueryError(error)
   return data as Job
 }
 
-/** Updates arbitrary fields on a job (including status, location, sponsorship). */
+/** Updates arbitrary fields on a job (including status, location, sponsorship, application_source). */
 export async function updateJob(jobId: string, updates: JobUpdate): Promise<Job> {
   assertConfigured()
   const { data, error } = await supabase

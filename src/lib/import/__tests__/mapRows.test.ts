@@ -5,6 +5,20 @@ import { autoMatchHeaders } from '../headerMatching'
 const HEADER = ['Company', 'Job Title', 'Job URL', 'Description', 'Location', 'Sponsorship', 'Applied Date', 'Status', 'Notes']
 const MAPPING = autoMatchHeaders(HEADER)
 
+const HEADER_WITH_SOURCE = [
+  'Company',
+  'Job Title',
+  'Job URL',
+  'Description',
+  'Location',
+  'Sponsorship',
+  'Application Source',
+  'Applied Date',
+  'Status',
+  'Notes',
+]
+const MAPPING_WITH_SOURCE = autoMatchHeaders(HEADER_WITH_SOURCE)
+
 describe('buildImportRows', () => {
   it('imports a fully-populated row as valid', () => {
     const rows = buildImportRows(
@@ -128,5 +142,60 @@ describe('buildImportRows', () => {
     )
     expect(rowNeedsParseFill(rows[0])).toBe(false) // nothing missing
     expect(rowNeedsParseFill(rows[1])).toBe(true)
+  })
+
+  describe('application_source (V3.6)', () => {
+    it('defaults application_source to Unknown when the spreadsheet has no matching column - old files without it keep working', () => {
+      const rows = buildImportRows(
+        [['Acme', 'Engineer', 'https://acme.example/jobs/11', null, null, null, null, null, null]],
+        MAPPING,
+        [],
+      )
+      expect(rows[0].outcome).toBe('valid')
+      expect(rows[0].data.application_source).toBe('Unknown')
+    })
+
+    it('never lists application_source as a missing/fillable field, even with a job_url present - it is never parse-fillable', () => {
+      const rows = buildImportRows(
+        [['Acme', null, 'https://acme.example/jobs/12', null, null, null, null, null, null]],
+        MAPPING,
+        [],
+      )
+      expect(rows[0].missingFillableFields).not.toContain('application_source')
+    })
+
+    it('imports a recognized application_source value from a matched column', () => {
+      const rows = buildImportRows(
+        [['Acme', 'Engineer', 'https://acme.example/jobs/13', null, null, 'Yes', 'Referral', '2026-09-21', 'Applied', null]],
+        MAPPING_WITH_SOURCE,
+        [],
+      )
+      expect(rows[0].outcome).toBe('valid')
+      expect(rows[0].data.application_source).toBe('Referral')
+      // Importing a source must never change any other field's normal
+      // value - sponsorship, status, dates are exactly as if the source
+      // column weren't there.
+      expect(rows[0].data.sponsorship).toBe('Yes')
+      expect(rows[0].data.status).toBe('Applied')
+    })
+
+    it('defaults a blank application_source cell to Unknown even when the column exists', () => {
+      const rows = buildImportRows(
+        [['Acme', 'Engineer', 'https://acme.example/jobs/14', null, null, null, '', null, null, null]],
+        MAPPING_WITH_SOURCE,
+        [],
+      )
+      expect(rows[0].data.application_source).toBe('Unknown')
+    })
+
+    it('defaults an unrecognized application_source value to Unknown rather than failing the row', () => {
+      const rows = buildImportRows(
+        [['Acme', 'Engineer', 'https://acme.example/jobs/15', null, null, null, 'Indeed', null, null, null]],
+        MAPPING_WITH_SOURCE,
+        [],
+      )
+      expect(rows[0].outcome).toBe('valid')
+      expect(rows[0].data.application_source).toBe('Unknown')
+    })
   })
 })

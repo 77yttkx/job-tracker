@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeSponsorship, normalizeStatus, parseImportDate } from '../normalize'
+import { normalizeApplicationSource, normalizeSponsorship, normalizeStatus, parseImportDate } from '../normalize'
 
 describe('normalizeStatus', () => {
   it('passes through an exact status match', () => {
@@ -58,6 +58,41 @@ describe('normalizeSponsorship', () => {
     expect(normalizeSponsorship('')).toBe('Unknown')
     expect(normalizeSponsorship(null)).toBe('Unknown')
     expect(normalizeSponsorship('Maybe')).toBe('Unknown')
+  })
+})
+
+describe('normalizeApplicationSource (V3.6)', () => {
+  it('passes through an exact match for each of the eight allowed values', () => {
+    for (const v of [
+      'Company Website',
+      'LinkedIn',
+      'Referral',
+      'Handshake',
+      'Career Fair',
+      'Recruiter',
+      'Other',
+      'Unknown',
+    ]) {
+      expect(normalizeApplicationSource(v)).toBe(v)
+    }
+  })
+
+  it('matches case-insensitively', () => {
+    expect(normalizeApplicationSource('linkedin')).toBe('LinkedIn')
+    expect(normalizeApplicationSource('REFERRAL')).toBe('Referral')
+    expect(normalizeApplicationSource('career fair')).toBe('Career Fair')
+  })
+
+  it('trims surrounding whitespace before matching', () => {
+    expect(normalizeApplicationSource('  LinkedIn  ')).toBe('LinkedIn')
+  })
+
+  it('defaults blank, missing, or unrecognized text to Unknown - never guessed from another field', () => {
+    expect(normalizeApplicationSource('')).toBe('Unknown')
+    expect(normalizeApplicationSource(null)).toBe('Unknown')
+    expect(normalizeApplicationSource(undefined)).toBe('Unknown')
+    expect(normalizeApplicationSource('Indeed')).toBe('Unknown')
+    expect(normalizeApplicationSource('some random text')).toBe('Unknown')
   })
 })
 

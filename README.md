@@ -33,6 +33,15 @@ and a filterable table that only ever show your own jobs.
   job description: `No` only for explicit no-sponsorship language, `Yes`
   only for explicit positive language, `Unknown` whenever it's absent,
   ambiguous, contradictory, or parsing failed. Always manually editable.
+- **Application Source tracking (V3.6)** - which channel an application
+  came through: `Company Website`, `LinkedIn`, `Referral`, `Handshake`,
+  `Career Fair`, `Recruiter`, `Other`, or `Unknown` (the default for
+  every existing and new job until set otherwise). **Never inferred**
+  from the job URL, company, role, description, or any other field -
+  it's only ever set by an explicit choice in the Add/Edit modal, the
+  Table's inline editor, or a recognized CSV/Excel import column. See
+  "Application Source Performance (V3.6)" below for the analytics built
+  on top of it.
 - **Location extraction** - pulled from structured job data, ATS-specific
   fields, metadata, and visible page labels (e.g. "Charlotte, NC, United
   States", "Remote — United States"). Never invented; always editable.
@@ -60,14 +69,16 @@ and a filterable table that only ever show your own jobs.
     underlying numbers as the application overview above but as a compact
     list). There is deliberately no sponsorship distribution panel on
     Insights.
-  - **Insights analytics (V3.3 / V3.4 / V3.5)** - product analytics
-    cards below the status distribution, each backed by a read-only
-    Postgres function (RPC) against your own data, never a client-built
-    query: Application Funnel (how far applications have *historically
-    progressed*, event-based - see below), Company Outcomes,
-    Sponsorship Analysis, Application Trend, and Time to Response (how
-    long applications take to get a first employer response). See
-    "Insights analytics (V3.3 / V3.4 / V3.5)" below for the full
+  - **Insights analytics (V3.3 / V3.4 / V3.5 / V3.6)** - product
+    analytics cards below the status distribution, each backed by a
+    read-only Postgres function (RPC) against your own data, never a
+    client-built query: Application Funnel (how far applications have
+    *historically progressed*, event-based - see below), Application
+    Source Performance (how tracked application channels compare,
+    purely descriptively - see below), Company Outcomes, Sponsorship
+    Analysis, Application Trend, and Time to Response (how long
+    applications take to get a first employer response). See "Insights
+    analytics (V3.3 / V3.4 / V3.5 / V3.6)" below for the full
     architecture, security design, and metric definitions.
   - Loading, error (with a Retry action), and empty states are distinct:
     "No applications yet" is only ever shown after a query that succeeded
@@ -88,8 +99,15 @@ and a filterable table that only ever show your own jobs.
   (multi-select) / Sponsorship (multi-select) filters that combine with
   AND logic (e.g. company contains "Moody" AND status is Applied or OA AND
   sponsorship is No), an applied-date range filter, sort by
-  applied/updated date, a visible "Clear filters" action, location and
-  sponsorship columns, and edit/delete (with inline confirmation).
+  applied/updated date, a visible "Clear filters" action, location,
+  Status, Application Source, and Sponsorship columns, and edit/delete
+  (with inline confirmation). **Status, Application Source, and
+  Sponsorship are all directly editable inline** - click the badge in
+  its column to choose a new value from a small popover, with no need to
+  open the Add/Edit modal; a failed update restores the previous value
+  and shows an error rather than leaving a falsely "saved" badge
+  on-screen (V3.6 added inline editing for Application Source and
+  Sponsorship - Status already worked this way).
 - **Import jobs (CSV/Excel)** - on the Table page, next to Export CSV.
   Reads `.csv`, `.xlsx`, and `.xls` files entirely client-side (via
   SheetJS/`xlsx` - nothing is uploaded to a third party). Lets you pick a
@@ -106,11 +124,20 @@ and a filterable table that only ever show your own jobs.
   fields - a failed lookup never loses the row, it's just flagged for
   manual review. Capped at 200 rows per import, with a downloadable CSV
   error report for anything invalid, skipped, or flagged.
+  **Application Source (V3.6)** is also recognized on import (header
+  aliases: "Application Source", "application_source", "Source",
+  "Channel") - a recognized value normalizes to the matching category,
+  a blank/missing/unrecognized value defaults to `Unknown`, and a file
+  with no such column at all still imports exactly as before (every job
+  simply defaults to `Unknown`). Source is never parse-filled from the
+  job URL - only an explicit spreadsheet column can set it on import.
 - **CSV export** - exports every one of *your* stored jobs (not just
   filtered Table rows, and never another user's - RLS scopes the
   underlying query, see "Multi-user security model" below) with RFC
   4180-correct escaping, columns in the required order (including
-  `location` and `sponsorship`), and a
+  `location`, `sponsorship`, and `application_source`, the last of
+  these appended at the end of the column list in V3.6 without
+  reordering anything that came before it), and a
   `job-tracker-export-YYYY-MM-DD.csv` filename.
 - **English dates everywhere, including date inputs** - every displayed
   date (table cells, Insights labels, chart tooltips) is formatted with the
@@ -265,7 +292,7 @@ sessions (yet)" below for the reasoning.
 - **Explicit, per-job opt-in.** No job is read, scanned, or summarized
   until you pick one from the list; nothing runs in the background.
 
-## Insights analytics (V3.3 / V3.4 / V3.5)
+## Insights analytics (V3.3 / V3.4 / V3.5 / V3.6)
 
 A set of product-analytics cards on the Insights page
 (`src/components/insights/analytics/`), below the application overview
@@ -279,6 +306,7 @@ demonstration.
 | Card | What it shows |
 | --- | --- |
 | Application Funnel | How far applications have *historically* progressed (Applications -> Employer Response -> Interview -> Final Round -> Offer) - not where they sit today |
+| Application Source Performance | How tracked application channels compare, descriptively - applications per source, plus Response/Interview rates computed only over each source's fully-tracked applications |
 | Company Outcomes | Per-company totals, interview-stage reach, offers, rejections |
 | Sponsorship Analysis | Job counts and current outcomes by sponsorship value |
 | Application Trend | Applications by week or month, from `applied_date` |
@@ -389,7 +417,75 @@ it's simply no longer called by the frontend, which now calls
 with this app's additive-only migration policy, nothing valid is
 dropped just because the UI stopped using it.
 
-### Database layer (`supabase-v3_3-sql-analytics.sql`, `supabase-v3_4-time-to-response.sql`, `supabase-v3_5-application-funnel.sql`)
+### Application Source Performance (V3.6)
+
+Tracks which channel each application came through (`application_source`
+on `public.jobs`: `Company Website`, `LinkedIn`, `Referral`, `Handshake`,
+`Career Fair`, `Recruiter`, `Other`, or `Unknown`) and shows how those
+channels compare - **strictly descriptively.** This card never claims
+one source performs better than another, never ranks sources, never
+labels one "Best" or "Worst", and never makes a recommendation. There is
+no significance testing, no confidence intervals, and no predictive
+modeling anywhere in it - it is raw counts and plain percentages, full
+stop.
+
+`application_source` is a deliberate, manual classification - exactly
+like Sponsorship. **It is never inferred** from the job URL, company,
+role, description, or any other field; every existing job defaulted to
+`Unknown` when this migration ran, and every new job defaults to
+`Unknown` until set otherwise via the Add/Edit modal, the Table's inline
+editor, or a recognized CSV/Excel import column.
+
+**Two different counts per source, shown as two different numbers on
+purpose:**
+
+- **Applications** - every application ever recorded for that source.
+  This needs no event history at all, so it is never gated by anything
+  below.
+- **Response / Interview** - computed ONLY over the subset of that
+  source's applications with *complete* recorded event history (the
+  same from_status-is-null "fully tracked" cohort Application Funnel
+  above uses - see that section for why). A job without full history
+  can't safely be counted as having responded or not, so it's excluded
+  from the rate rather than guessed at either way.
+
+These two counts are frequently different numbers, and the card never
+conflates them. A source can have 20 total applications but only 12
+with complete history; its rates then read:
+
+```
+Applications: 20
+Response: 58% — 7 of 12 fully tracked applications
+Interview: 25% — 3 of 12 fully tracked applications
+```
+
+This is deliberately never written as `"58% (n=12)"` - that notation
+would silently suggest the source only ever had 12 applications total,
+when it actually had 20. If a source has zero fully-tracked
+applications, its rate shows an em dash (`—`) with "No complete history
+yet" rather than a fabricated `0%`.
+
+**Response and Interview use the exact same qualifying-status
+definitions as Time to Response and Application Funnel:**
+
+| Outcome | Counts an application if it ever had an event with `to_status` in |
+| --- | --- |
+| Response | `OA`, `1st Round`, `2nd Round`, `Final Round`, `Offer`, `Rejected` |
+| Interview | `1st Round`, `2nd Round`, `Final Round`, `Offer` |
+
+`Applied` never qualifies (starting state); `Ghosted` never counts as a
+Response (a status you assign yourself, not something the employer
+did) - same reasoning as everywhere else in this app.
+
+**Sources are sorted by total Applications descending - except
+`Unknown`, which always sorts last regardless of its count.** Unknown
+is kept visible rather than hidden: it's a useful signal of how much
+source data still needs cleanup, and since Source is now inline-editable
+from the Table, you can fix it incrementally. No source is ever hidden
+behind a minimum-sample threshold, however small its fully-tracked count
+is - the card always shows that count alongside its rate instead.
+
+### Database layer (`supabase-v3_3-sql-analytics.sql`, `supabase-v3_4-time-to-response.sql`, `supabase-v3_5-application-funnel.sql`, `supabase-v3_6-application-source.sql`)
 
 - **`public.job_status_events`** - `job_id`, `user_id`, `from_status`
   (nullable - a job's first event has no "from"), `to_status`,
@@ -415,26 +511,34 @@ dropped just because the UI stopped using it.
   `set status = status` doesn't create a duplicate). **No backfill:**
   this table only ever contains events recorded from the moment
   `supabase-v3_3-sql-analytics.sql` was run forward.
-- **`public.jobs` itself is unchanged** - no new column, no dropped or
-  altered column, and none of its existing RLS policies are created,
-  dropped, or altered by either migration. The only thing attached to
-  `public.jobs` is the two triggers above. Verified by
-  `src/__tests__/sqlAnalyticsMigration.test.ts` and
+- **`public.jobs` itself is unchanged by V3.3/V3.4/V3.5** - no new
+  column, no dropped or altered column, and none of its existing RLS
+  policies are created, dropped, or altered by any of those three. The
+  only thing attached to `public.jobs` by them is the two triggers
+  above. Verified by `src/__tests__/sqlAnalyticsMigration.test.ts` and
   `src/__tests__/timeToResponseMigration.test.ts`, which read the
-  migration files directly and assert on exactly this.
+  migration files directly and assert on exactly this. **V3.6 is the
+  one exception**: it adds exactly one additive column
+  (`application_source`, `not null default 'Unknown'`) and its check
+  constraint to `public.jobs`, following the identical pattern
+  `supabase-v2-migration.sql` already used for `sponsorship` - no
+  trigger, index, or RLS policy change, verified by
+  `src/__tests__/applicationSourceMigration.test.ts`.
 - **Seven RPCs in `supabase-v3_3-sql-analytics.sql`**
   (`analytics_application_funnel`, `analytics_company_outcomes`,
   `analytics_sponsorship_outcomes`, `analytics_application_trend`,
   `analytics_status_transitions_by_week`, `analytics_stage_reach_rates`,
   `analytics_avg_stage_durations`), **three more in
   `supabase-v3_4-time-to-response.sql`** (`analytics_time_to_response_summary`,
-  `analytics_response_time_distribution`, `analytics_still_waiting`), and
+  `analytics_response_time_distribution`, `analytics_still_waiting`),
   **one more in `supabase-v3_5-application-funnel.sql`**
-  (`analytics_application_funnel_progression`). The frontend calls
-  three of the seven V3.3 RPCs (`analytics_company_outcomes`,
-  `analytics_sponsorship_outcomes`, `analytics_application_trend`) plus
-  all three V3.4 RPCs plus the one V3.5 RPC - the remaining four V3.3
-  RPCs (`analytics_application_funnel`,
+  (`analytics_application_funnel_progression`), and **one more in
+  `supabase-v3_6-application-source.sql`** (`analytics_source_performance`).
+  The frontend calls three of the seven V3.3 RPCs
+  (`analytics_company_outcomes`, `analytics_sponsorship_outcomes`,
+  `analytics_application_trend`) plus all three V3.4 RPCs plus the one
+  V3.5 RPC plus the one V3.6 RPC - the remaining four V3.3 RPCs
+  (`analytics_application_funnel`,
   `analytics_status_transitions_by_week`, `analytics_stage_reach_rates`,
   `analytics_avg_stage_durations`) remain defined in the database,
   unused by any current UI, rather than being dropped (this app's
@@ -455,10 +559,15 @@ dropped just because the UI stopped using it.
   expression forces it to resolve to exactly one of two fixed literals
   before it ever reaches `date_trunc`.
 - **Idempotent and safe to re-run.** Every `create table`/`create index`
-  uses `if not exists`, every function uses `create or replace`, and
-  every trigger/policy is dropped then recreated. Re-running any of the
-  three migrations never duplicates objects and never re-processes
-  existing rows (there is no backfill statement in any of them).
+  uses `if not exists`, every column add uses `if not exists`, every
+  check constraint is dropped then recreated, every function uses
+  `create or replace`, and every trigger/policy is dropped then
+  recreated. Re-running any of the four migrations never duplicates
+  objects and never re-processes existing rows (there is no backfill
+  statement in any of them - V3.6's `application_source` column default
+  of `'Unknown'` is the closest thing to a backfill, and it applies
+  identically whether the column is being added for the first time or
+  the migration is simply re-run).
 - `src/services/analytics.ts` only ever calls `supabase.rpc(<fixed
   string>)` - there is no `supabase.from('job_status_events')` call
   anywhere in it, no client-built query, and no way for a caller to
@@ -563,13 +672,15 @@ The app runs at http://localhost:5173 by default.
    pages will show query errors when opened - the rest of the Job
    Tracker is unaffected either way.
 8. **Required for the Insights analytics cards** (Application Funnel,
-   Company Outcomes, Sponsorship Analysis, Application Trend, Time to
-   Response): run `supabase-v3_3-sql-analytics.sql`, then
+   Application Source Performance, Company Outcomes, Sponsorship
+   Analysis, Application Trend, Time to Response): run
+   `supabase-v3_3-sql-analytics.sql`, then
    `supabase-v3_4-time-to-response.sql`, then
-   `supabase-v3_5-application-funnel.sql`, in the SQL editor, once, in
-   that order, after `supabase-v2_6-multi-user.sql` (none of the three
+   `supabase-v3_5-application-funnel.sql`, then
+   `supabase-v3_6-application-source.sql`, in the SQL editor, once, in
+   that order, after `supabase-v2_6-multi-user.sql` (none of the four
    depends on any of the V3/V3.1/V3.2 Interview Prep migrations). All
-   three are purely additive:
+   four are purely additive:
    - `supabase-v3_3-sql-analytics.sql` creates one new table,
      `public.job_status_events`, with RLS enabled and a single
      `select`-own policy - the frontend has no insert/update/delete grant
@@ -589,15 +700,27 @@ The app runs at http://localhost:5173 by default.
      Application Funnel - again no new table, column, index, trigger, or
      RLS policy, and it leaves the original `analytics_application_funnel`
      RPC completely untouched in the database - verified by
-     `src/__tests__/applicationFunnelMigration.test.ts`. See "Insights
-     analytics (V3.3 / V3.4 / V3.5)" below for the full RPC list and
-     every metric definition.
-   - **No backfill in any of the three:** none of them invents a
-     synthetic history for jobs that already existed before you ran
-     them - event-based metrics only ever reflect events recorded from
-     `supabase-v3_3-sql-analytics.sql` forward. Skipping any of them just
-     means the affected Insights cards show query errors when opened;
-     the rest of the Job Tracker is unaffected.
+     `src/__tests__/applicationFunnelMigration.test.ts`.
+   - `supabase-v3_6-application-source.sql` adds the `application_source`
+     column (+ its check constraint) to `public.jobs` - following the
+     exact same additive pattern `supabase-v2-migration.sql` used for
+     `sponsorship` - plus one more read-only RPC,
+     `analytics_source_performance`, for Application Source Performance.
+     No new table, trigger, or RLS policy, and it leaves every V3.3/
+     V3.4/V3.5 function completely untouched - verified by
+     `src/__tests__/applicationSourceMigration.test.ts`. Existing rows
+     get `application_source = 'Unknown'` automatically; it is never
+     inferred from any other field.
+   See "Insights analytics (V3.3 / V3.4 / V3.5 / V3.6)" below for the
+   full RPC list and every metric definition.
+   - **No backfill of event history in any of the four:** none of them
+     invents a synthetic history for jobs that already existed before
+     you ran them - event-based metrics only ever reflect events
+     recorded from `supabase-v3_3-sql-analytics.sql` forward. Skipping
+     any of them just means the affected Insights cards show query
+     errors when opened, or (for V3.6 specifically) that the
+     `application_source` column/filter don't exist yet; the rest of
+     the Job Tracker is unaffected.
 9. **Not required as of V3.1:** Interview Prep no longer uses Gemini or
    any external AI provider, so there is nothing to deploy or configure
    for it. The old step 8 (Gemini secrets + `generate-star-answer`
@@ -1244,9 +1367,21 @@ still safe. Concretely, the guarantees are now:
   cohort size explicitly rather than treating all applications as the
   denominator. Status Distribution is unaffected by any of this, since
   it's current-status based.
+- **Application Source Performance** (see "Insights analytics (V3.3 /
+  V3.4 / V3.5 / V3.6)" above) splits each source's Applications count
+  (every application, no event history required) from its Response/
+  Interview rates (fully-tracked applications only, same cohort as
+  Application Funnel) - the two are shown as separate numbers on
+  purpose and are frequently different. `application_source` itself has
+  no backfill in the sense of guessing history: every job that existed
+  before `supabase-v3_6-application-source.sql` ran simply got
+  `application_source = 'Unknown'`, which you can then correct per job
+  via the Table's inline editor or the Add/Edit modal - it is never
+  inferred automatically.
 - If you haven't run `supabase-v3_3-sql-analytics.sql`,
-  `supabase-v3_4-time-to-response.sql`, and
-  `supabase-v3_5-application-funnel.sql` at all, the Insights analytics
+  `supabase-v3_4-time-to-response.sql`,
+  `supabase-v3_5-application-funnel.sql`, and
+  `supabase-v3_6-application-source.sql` at all, the Insights analytics
   cards show query errors when opened; the rest of the app is
   unaffected.
 - Table filters run client-side.

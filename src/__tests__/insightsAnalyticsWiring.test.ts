@@ -30,9 +30,10 @@ describe('Insights analytics wiring (source-level regression guard)', () => {
     expect(insightsSource).not.toMatch(/StatusHistoryCard/)
   })
 
-  it('renders every kept and new analytics card', () => {
+  it('renders every kept and new analytics card, including V3.6 Application Source Performance', () => {
     for (const card of [
       'ApplicationFunnelCard',
+      'ApplicationSourcePerformanceCard',
       'CompanyOutcomesCard',
       'SponsorshipAnalysisCard',
       'ApplicationTrendCard',

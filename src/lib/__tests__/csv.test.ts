@@ -10,6 +10,7 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     role: 'Engineer',
     location: 'Remote — United States',
     sponsorship: 'Unknown',
+    application_source: 'Unknown',
     job_url: 'https://acme.example/jobs/1',
     jd: 'Build things',
     applied_date: '2026-01-05',
@@ -45,10 +46,10 @@ describe('escapeCsvField', () => {
 })
 
 describe('jobsToCsv', () => {
-  it('emits the header row with columns in the required order', () => {
+  it('emits the header row with columns in the required order, with application_source appended at the end (V3.6)', () => {
     const csv = jobsToCsv([])
     expect(csv).toBe(
-      'job_id,company,role,location,sponsorship,job_url,jd,applied_date,status,notes,created_at,updated_at',
+      'job_id,company,role,location,sponsorship,job_url,jd,applied_date,status,notes,created_at,updated_at,application_source',
     )
   })
 
@@ -79,6 +80,30 @@ describe('jobsToCsv', () => {
     const cols = lines[1].split(',')
     // location is column index 3 (0-based): job_id,company,role,location,...
     expect(cols[3]).toBe('')
+  })
+
+  it('includes application_source as the last column, without disrupting any existing column position (V3.6)', () => {
+    const csv = jobsToCsv([makeJob({ application_source: 'Referral' })])
+    const lines = csv.split('\r\n')
+    const header = lines[0].split(',')
+    expect(header[header.length - 1]).toBe('application_source')
+    const cols = lines[1].split(',')
+    expect(cols[cols.length - 1]).toBe('Referral')
+    // Every pre-existing column index is unchanged.
+    expect(header.slice(0, 12)).toEqual([
+      'job_id',
+      'company',
+      'role',
+      'location',
+      'sponsorship',
+      'job_url',
+      'jd',
+      'applied_date',
+      'status',
+      'notes',
+      'created_at',
+      'updated_at',
+    ])
   })
 })
 

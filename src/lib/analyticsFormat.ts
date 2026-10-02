@@ -54,3 +54,30 @@ export function formatPercent(numerator: number, denominator: number): string {
   if (denominator <= 0) return '—'
   return `${Math.round((numerator / denominator) * 100)}%`
 }
+
+/**
+ * Application Source Performance (V3.6) rate display - e.g. "58%", or an
+ * em dash when this source has zero fully-tracked applications (never a
+ * fabricated "0%"). Thin wrapper over formatPercent using the same
+ * divide-by-zero guard, kept as its own named function so the card's
+ * intent ("this is a tracked-cohort rate, not a plain percentage") is
+ * clear at the call site.
+ */
+export function formatTrackedRate(count: number, trackedCount: number): string {
+  return formatPercent(count, trackedCount)
+}
+
+/**
+ * Secondary caption for a Source Performance rate, e.g. "7 of 12 fully
+ * tracked applications", or "No complete history yet" when trackedCount
+ * is 0. This ALWAYS names the fully-tracked/complete-history subset
+ * explicitly - it must never read as a bare "7 of 12 applications",
+ * which would wrongly imply the source only ever had 12 applications
+ * total. See supabase-v3_6-application-source.sql and
+ * ApplicationSourcePerformanceCard.tsx for why application_count and
+ * tracked_count are always kept visibly distinct.
+ */
+export function formatTrackedRateCaption(count: number, trackedCount: number): string {
+  if (trackedCount <= 0) return 'No complete history yet'
+  return `${count} of ${trackedCount} fully tracked application${trackedCount === 1 ? '' : 's'}`
+}

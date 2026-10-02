@@ -5,6 +5,8 @@ import {
   formatPercent,
   formatPeriodLabel,
   formatResponseSampleCaption,
+  formatTrackedRate,
+  formatTrackedRateCaption,
 } from '../analyticsFormat'
 
 describe('analyticsFormat', () => {
@@ -94,6 +96,40 @@ describe('analyticsFormat', () => {
 
     it('handles numerator equal to denominator as 100%', () => {
       expect(formatPercent(18, 18)).toBe('100%')
+    })
+  })
+
+  describe('formatTrackedRate (V3.6 Application Source Performance)', () => {
+    it('renders a rounded whole-percent rate over the tracked cohort', () => {
+      expect(formatTrackedRate(7, 12)).toBe('58%')
+    })
+
+    it('shows an em dash when trackedCount is zero - never a fabricated 0%', () => {
+      expect(formatTrackedRate(0, 0)).toBe('—')
+    })
+  })
+
+  describe('formatTrackedRateCaption (V3.6 Application Source Performance)', () => {
+    it('names the fully-tracked subset explicitly, never a bare "N of M applications"', () => {
+      expect(formatTrackedRateCaption(7, 12)).toBe('7 of 12 fully tracked applications')
+    })
+
+    it('uses the singular "application" when trackedCount is exactly 1', () => {
+      expect(formatTrackedRateCaption(1, 1)).toBe('1 of 1 fully tracked application')
+    })
+
+    it('returns friendly "No complete history yet" copy when trackedCount is zero, never "0 of 0"', () => {
+      expect(formatTrackedRateCaption(0, 0)).toBe('No complete history yet')
+    })
+
+    it('never emits forbidden statistical jargon (n=, sample size, denominator, cohort)', () => {
+      const captions = [formatTrackedRateCaption(7, 12), formatTrackedRateCaption(0, 0), formatTrackedRateCaption(3, 30)]
+      for (const caption of captions) {
+        expect(caption).not.toMatch(/n=/i)
+        expect(caption).not.toMatch(/sample size/i)
+        expect(caption).not.toMatch(/denominator/i)
+        expect(caption).not.toMatch(/cohort/i)
+      }
     })
   })
 })

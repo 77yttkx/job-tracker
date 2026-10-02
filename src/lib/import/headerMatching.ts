@@ -13,6 +13,7 @@ const ALIASES: Record<ImportField, string[]> = {
   jd: ['jd', 'job description', 'description'],
   location: ['location', 'city', 'work location'],
   sponsorship: ['sponsorship', 'visa sponsorship', 'sponsor'],
+  application_source: ['application source', 'application_source', 'source', 'channel'],
   applied_date: ['applied date', 'application date', 'date applied', 'date'],
   status: ['status', 'application status'],
   notes: ['notes', 'comments', 'note', 'comment'],

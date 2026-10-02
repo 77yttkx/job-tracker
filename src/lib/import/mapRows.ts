@@ -1,8 +1,8 @@
-import { normalizeSponsorship, normalizeStatus, parseImportDate } from './normalize'
+import { normalizeApplicationSource, normalizeSponsorship, normalizeStatus, parseImportDate } from './normalize'
 import { PARSE_FILLABLE_FIELDS } from './constants'
 import type { ImportField } from './constants'
 import type { HeaderMapping } from './headerMatching'
-import type { JobStatus, Sponsorship } from '../constants'
+import type { ApplicationSource, JobStatus, Sponsorship } from '../constants'
 import type { NewJob } from '../../types/job'
 
 export interface ImportRowData {
@@ -12,6 +12,7 @@ export interface ImportRowData {
   jd: string | null
   location: string | null
   sponsorship: Sponsorship
+  application_source: ApplicationSource
   applied_date: string | null
   status: JobStatus
   notes: string | null
@@ -34,7 +35,7 @@ export interface ImportRow {
   invalidDateRaw: string | null
   /** True when the status cell held text that isn't one of the 8 allowed statuses (defaulted to Applied). */
   statusWasInvalid: boolean
-  /** Which parse-fillable fields (company/role/jd/location/sponsorship) came back blank/Unknown and could be filled from job_url. */
+  /** Which parse-fillable fields (company/role/jd/location/sponsorship) came back blank/Unknown and could be filled from job_url. application_source is never included here - see PARSE_FILLABLE_FIELDS. */
   missingFillableFields: ImportField[]
 }
 
@@ -99,6 +100,11 @@ export function buildImportRows(
     const sponsorshipRaw = cellAt(row, mapping, 'sponsorship')
     const sponsorship = normalizeSponsorship(sponsorshipRaw)
     const sponsorshipWasBlank = trimmedOrNull(sponsorshipRaw) === null
+    // No "was blank"/missing-fillable tracking for application_source -
+    // it is never parse-fillable (see PARSE_FILLABLE_FIELDS), so a
+    // missing/unrecognized column has nothing further to report beyond
+    // the 'Unknown' default normalizeApplicationSource already applies.
+    const applicationSource = normalizeApplicationSource(cellAt(row, mapping, 'application_source'))
     const { status, wasInvalid: statusWasInvalid } = normalizeStatus(cellAt(row, mapping, 'status'))
     const dateResult = parseImportDate(cellAt(row, mapping, 'applied_date'))
 
@@ -116,6 +122,7 @@ export function buildImportRows(
       jd,
       location,
       sponsorship,
+      application_source: applicationSource,
       applied_date: dateResult.value,
       status,
       notes,
@@ -186,6 +193,7 @@ function emptyRowData(): ImportRowData {
     jd: null,
     location: null,
     sponsorship: 'Unknown',
+    application_source: 'Unknown',
     applied_date: null,
     status: 'Applied',
     notes: null,

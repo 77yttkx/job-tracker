@@ -1,5 +1,9 @@
 import type { Job } from '../types/job'
 
+// V3.6: application_source is appended to the END of this list, after
+// updated_at - existing column order/positions are never disturbed, per
+// the product spec ("append... without disrupting existing column
+// order").
 const CSV_COLUMNS = [
   'job_id',
   'company',
@@ -13,6 +17,7 @@ const CSV_COLUMNS = [
   'notes',
   'created_at',
   'updated_at',
+  'application_source',
 ] as const
 
 /** Escapes a single CSV field per RFC 4180: quote if it contains a comma, quote, or newline. */

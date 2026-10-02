@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Pencil, Search, Upload, X } from 'lucide-react'
 import { JOB_STATUSES, SPONSORSHIP_VALUES } from '../lib/constants'
-import type { JobStatus, Sponsorship } from '../lib/constants'
+import type { ApplicationSource, JobStatus, Sponsorship } from '../lib/constants'
 import { formatDate, classNames } from '../lib/utils'
 import { applyJobFilters } from '../lib/insightsFilters'
 import { compareJobsByAppliedDate } from '../lib/tableSort'
 import { StatusEditCell } from '../components/jobs/StatusEditCell'
-import { SponsorshipBadge } from '../components/jobs/SponsorshipBadge'
+import { ApplicationSourceEditCell } from '../components/jobs/ApplicationSourceEditCell'
+import { SponsorshipEditCell } from '../components/jobs/SponsorshipEditCell'
 import { DeleteButton } from '../components/jobs/DeleteButton'
 import { ImportJobsModal } from '../components/jobs/ImportJobsModal'
 import { ExportCsvButton } from '../components/ui/ExportCsvButton'
@@ -71,6 +72,14 @@ export function TablePage({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [statusError, setStatusError] = useState<string | null>(null)
   const [statusPendingId, setStatusPendingId] = useState<string | null>(null)
+  // Application Source and Sponsorship each get their own independent
+  // pending/error tracking (V3.6) - mirroring Status's own, never shared
+  // with it or with each other, so editing one field can never be
+  // mistaken for (or interfere with) editing another.
+  const [sourceError, setSourceError] = useState<string | null>(null)
+  const [sourcePendingId, setSourcePendingId] = useState<string | null>(null)
+  const [sponsorshipError, setSponsorshipError] = useState<string | null>(null)
+  const [sponsorshipPendingId, setSponsorshipPendingId] = useState<string | null>(null)
   const [importOpen, setImportOpen] = useState(false)
 
   const filtered = useMemo(() => {
@@ -154,6 +163,35 @@ export function TablePage({
       setStatusError(err instanceof Error ? err.message : 'Failed to update status.')
     } finally {
       setStatusPendingId(null)
+    }
+  }
+
+  async function handleSourceChange(jobId: string, next: ApplicationSource) {
+    setSourceError(null)
+    setSourcePendingId(jobId)
+    try {
+      // { application_source: next } only - never bundled with any other
+      // field, so changing Source can never also change Status,
+      // Sponsorship, or anything else on the row.
+      await editJob(jobId, { application_source: next })
+    } catch (err) {
+      setSourceError(err instanceof Error ? err.message : 'Failed to update application source.')
+    } finally {
+      setSourcePendingId(null)
+    }
+  }
+
+  async function handleSponsorshipChange(jobId: string, next: Sponsorship) {
+    setSponsorshipError(null)
+    setSponsorshipPendingId(jobId)
+    try {
+      // { sponsorship: next } only - never bundled with Source/Status/
+      // anything else.
+      await editJob(jobId, { sponsorship: next })
+    } catch (err) {
+      setSponsorshipError(err instanceof Error ? err.message : 'Failed to update sponsorship.')
+    } finally {
+      setSponsorshipPendingId(null)
     }
   }
 
@@ -324,6 +362,18 @@ export function TablePage({
             </p>
           )}
 
+          {sourceError && (
+            <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+              {sourceError}
+            </p>
+          )}
+
+          {sponsorshipError && (
+            <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+              {sponsorshipError}
+            </p>
+          )}
+
           {filtered.length === 0 ? (
             <EmptyState title="No results" description="Try adjusting or clearing your filters." />
           ) : (
@@ -335,6 +385,7 @@ export function TablePage({
                     <Th>Role</Th>
                     <Th className="hidden lg:table-cell">Location</Th>
                     <Th>Status</Th>
+                    <Th className="hidden md:table-cell">Source</Th>
                     <Th className="hidden md:table-cell">Sponsorship</Th>
                     <SortableTh label="Applied" active={sortKey === 'applied_date'} dir={sortDir} onClick={() => toggleSort('applied_date')} />
                     <Th className="hidden md:table-cell">Job URL</Th>
@@ -356,7 +407,18 @@ export function TablePage({
                         />
                       </Td>
                       <Td className="hidden md:table-cell">
-                        <SponsorshipBadge sponsorship={job.sponsorship} />
+                        <ApplicationSourceEditCell
+                          source={job.application_source}
+                          pending={sourcePendingId === job.job_id}
+                          onChange={(next) => void handleSourceChange(job.job_id, next)}
+                        />
+                      </Td>
+                      <Td className="hidden md:table-cell">
+                        <SponsorshipEditCell
+                          sponsorship={job.sponsorship}
+                          pending={sponsorshipPendingId === job.job_id}
+                          onChange={(next) => void handleSponsorshipChange(job.job_id, next)}
+                        />
                       </Td>
                       <Td>{formatDate(job.applied_date) || <Muted>-</Muted>}</Td>
                       <Td className="hidden max-w-[12rem] truncate md:table-cell">

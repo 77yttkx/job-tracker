@@ -1,10 +1,10 @@
 /**
  * Row shapes returned by Insights' analytics RPCs
  * (supabase-v3_3-sql-analytics.sql, supabase-v3_4-time-to-response.sql,
- * supabase-v3_5-application-funnel.sql). Every RPC is scoped to the
- * calling user (auth.uid()) server-side, so these types intentionally
- * carry no user_id field - the frontend never needs to (and cannot)
- * request another user's rows.
+ * supabase-v3_5-application-funnel.sql, supabase-v3_6-application-source.sql).
+ * Every RPC is scoped to the calling user (auth.uid()) server-side, so
+ * these types intentionally carry no user_id field - the frontend never
+ * needs to (and cannot) request another user's rows.
  */
 
 export interface CompanyOutcomeRow {
@@ -63,4 +63,23 @@ export interface FunnelProgressionRow {
   interview_count: number
   final_round_count: number
   offer_count: number
+}
+
+/**
+ * Application Source Performance (V3.6) - raw counts per source, scoped
+ * to the calling user. `application_count` is EVERY application from
+ * that source (ungated); `tracked_count` is the subset with complete
+ * recorded event history (the same from_status-is-null cohort as
+ * FunnelProgressionRow above); `response_count`/`interview_count` are
+ * computed ONLY within that tracked subset. See
+ * supabase-v3_6-application-source.sql for the full definition, and
+ * ApplicationSourcePerformanceCard.tsx for why application_count and
+ * tracked_count must always be shown as visibly distinct numbers.
+ */
+export interface SourcePerformanceRow {
+  application_source: string
+  application_count: number
+  tracked_count: number
+  response_count: number
+  interview_count: number
 }

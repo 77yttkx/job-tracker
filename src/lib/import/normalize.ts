@@ -1,5 +1,5 @@
-import { DEFAULT_STATUS, JOB_STATUSES } from '../constants'
-import type { JobStatus, Sponsorship } from '../constants'
+import { APPLICATION_SOURCES, DEFAULT_APPLICATION_SOURCE, DEFAULT_STATUS, JOB_STATUSES } from '../constants'
+import type { ApplicationSource, JobStatus, Sponsorship } from '../constants'
 
 /**
  * Legacy spreadsheet values that no longer match a current JOB_STATUSES
@@ -43,6 +43,22 @@ export function normalizeSponsorship(raw: unknown): Sponsorship {
   if (SPONSORSHIP_YES.has(trimmed)) return 'Yes'
   if (SPONSORSHIP_NO.has(trimmed)) return 'No'
   return 'Unknown'
+}
+
+/**
+ * Normalizes an imported application_source cell (V3.6) to one of the 8
+ * allowed APPLICATION_SOURCES values. An exact (case-insensitive) match
+ * is used as-is; blank, missing, or anything unrecognized defaults to
+ * 'Unknown' - the same "never guess, default safely" behavior as
+ * normalizeSponsorship above. This never infers a source from any other
+ * imported field (company, role, job_url, jd, notes) - it only ever
+ * reads the application_source cell itself.
+ */
+export function normalizeApplicationSource(raw: unknown): ApplicationSource {
+  const trimmed = String(raw ?? '').trim()
+  if (!trimmed) return DEFAULT_APPLICATION_SOURCE
+  const exact = APPLICATION_SOURCES.find((s) => s.toLowerCase() === trimmed.toLowerCase())
+  return exact ?? DEFAULT_APPLICATION_SOURCE
 }
 
 function pad2(n: number): string {
